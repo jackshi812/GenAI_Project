@@ -32,11 +32,11 @@ MCP-02, MCP-03, MCP-04, MCP-05, MCP-06, MCP-07, GRAPH-01, GRAPH-02, GRAPH-03,
 GRAPH-04, GRAPH-05, GRAPH-06, GRAPH-07, VOICE-01, VOICE-02, VOICE-03, VOICE-04,
 UI-01, UI-02, UI-03, UI-04
 
-**Plans:** three, running concurrently from day one. No plan blocks another.
+**Plans:** 3 plans, all wave 1, running concurrently from day one. No plan blocks another.
 
-- **PLAN-1 — Austin** · `catalog/`, `mcp_server/` · catalog normalization, vector index, hybrid retrieval, MCP server with both tools, caching, rate limiting, request logging
-- **PLAN-2 — Ginger** · `graph/`, `prompts/` · LLM abstraction, state schema, four cooperative nodes, reconciliation, prompt library
-- **PLAN-3 — Jack** · `voice/`, `app/` · shared scaffolding first (contract, fixtures, `.env.example`), then speech-to-text, text-to-speech, and the Streamlit interface
+- [ ] `01-01-PLAN.md` — **Austin** · `catalog/`, `mcp_server/` · catalog normalization, Chroma index, hybrid retrieval, canonical queries, MCP server with both tools, caching, rate limiting, request logging
+- [ ] `01-02-PLAN.md` — **Ginger** · `graph/`, `prompts/` · LLM abstraction, state schema, four cooperative nodes, two-stage reconciliation, prompt library
+- [ ] `01-03-PLAN.md` — **Jack** · repo root, `voice/`, `app/` · shared scaffolding first (`contracts.py`, `fixtures.json`, `.env.example`, Serper fixtures), then speech-to-text, text-to-speech, and the Streamlit interface
 
 **Why nobody waits:** Austin's opening work — parsing the catalog, cleaning prices,
 deriving brands, building the index — depends on no interface decision. Ginger's
