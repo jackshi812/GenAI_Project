@@ -1,0 +1,10 @@
+.DS_Store
+.env
+venv/
+.venv/
+__pycache__/
+*.pyc
+catalog/chroma/
+mcp_server/logs/
+*.mp3
+*.wav
