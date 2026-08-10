@@ -14,7 +14,7 @@ requirement traceable to a line in the grading rubric.
 
 ### Agent Orchestration
 
-- [ ] **GRAPH-01**: Router extracts the task, constraints (budget, category, brand) and safety flags from a transcript
+- [ ] **GRAPH-01**: Router extracts the task, constraints (budget, category, brand, material) and safety flags from a transcript
 - [ ] **GRAPH-02**: Planner selects which sources to consult — private, live, or both — and builds the retrieval filter
 - [ ] **GRAPH-03**: Planner escalates to live search when the request implies currency ("now", "current price", "latest", "availability")
 - [ ] **GRAPH-04**: Retriever calls both MCP tools and reconciles results by SKU, brand or title similarity
@@ -45,7 +45,7 @@ requirement traceable to a line in the grading rubric.
 
 - [ ] **UI-01**: Comparison table shows the top three products with price, rating and product image
 - [ ] **UI-02**: Disagreements between private and live data are visibly flagged on the affected product row
-- [ ] **UI-03**: Agent step log is visible on screen during and after a run
+- [ ] **UI-03**: Agent step log is visible on screen after graph execution and remains visible with the result
 - [ ] **UI-04**: Citations panel visually distinguishes private document IDs from live source URLs
 
 ### Documentation

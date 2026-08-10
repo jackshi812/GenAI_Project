@@ -63,7 +63,7 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Init]: Keep the mandated Amazon 2020 dataset despite thirteen empty columns and no ratings — swapping risks the grade
+- [Init]: Keep the mandated Amazon 2020 row set via `dataset/amazon_product_data_cleaned.csv`; its original thirteen empty columns are omitted and it has no ratings
 - [Init]: Index all ~10,000 rows rather than a single category slice; the spec's suggested Household Cleaning slice does not exist in this data
 - [Init]: Source ratings from `web.search` via Serper's shopping endpoint, since the catalog has none — never fabricate
 - [Init]: Horizontal-layers phase structure with three concurrent plans in Phase 1, driven by a three-person team on a ten-day deadline

@@ -27,12 +27,12 @@ VOICE-01…04, UI-01…04.
 
 ### Reconciliation and Conflicts
 
-- **D-01:** Private-to-live product matching is a two-stage process — normalized
-  title similarity shortlists two or three live candidates, then the LLM
-  confirms whether they are the same product. Neither signal works alone here:
-  `sku` is derived from `Uniq Id` and means nothing to the web, and `brand` is
-  guessed from the title's first token. The LLM confirmation is what makes the
-  match defensible.
+- **D-01:** Every private-to-live product match receives an inspectable verdict
+  through three stages: normalized title similarity, deterministic variant
+  guards, then selective LLM confirmation. Scores above 0.60 auto-accept only
+  when pack/count/model/size/color evidence is compatible; scores below 0.35
+  reject; ambiguous or one-sided variant evidence goes to the LLM. This keeps
+  per-product provenance without paying for three LLM calls on a normal turn.
 
 - **D-02:** Disagreement is expressed as **per-field provenance**, not a single
   conflict flag. Every value on a comparison row carries where it came from —
@@ -62,8 +62,10 @@ VOICE-01…04, UI-01…04.
 - **D-06:** Live queries are built **per product** from the matched catalog
   title, roughly three per turn, rather than one category-level query. Per-field
   provenance is only meaningful if the live price was fetched for that specific
-  product. The resulting call volume is exactly what makes the graded TTL cache
-  (MCP-05) and rate limiter (MCP-06) load-bearing rather than decorative.
+  product. The resulting call volume makes the rate limiter and per-process call
+  cap load-bearing. The graded TTL cache is verified by repeating an identical
+  query in Austin's MCP smoke client; because integration starts a fresh server
+  process for each user turn, no plan promises a cache hit across app turns.
 
 - **D-07:** Safety filtering is an explicit **retailer allowlist** — a short
   config list of permitted domains, with any result outside it dropped before it
@@ -73,8 +75,12 @@ VOICE-01…04, UI-01…04.
 - **D-08:** When `SERPER_API_KEY` is unset, `web.search` replays **recorded
   fixture responses** captured from real Serper calls and committed to the repo.
   Austin is unblocked immediately, the shapes are real rather than imagined,
-  tests are deterministic, and the same mechanism serves as the offline fallback
-  for the roadmap risk about network calls in the live demo's critical path.
+  tests are deterministic, and the same mechanism is the **Serper-only** fallback
+  when live shopping search is unavailable. ASR, LLM, and TTS may still require
+  network access; the Phase 3 backup video is the full network-outage fallback.
+  All owners use the same exact fixture key: first eight whitespace-delimited
+  product-title words, lowercased with whitespace collapsed. A miss returns no
+  result; it never falls through to a fuzzy neighbouring product.
 
 ### Contract and Team Seams
 
@@ -86,16 +92,21 @@ VOICE-01…04, UI-01…04.
 
 - **D-10:** The contract is `contracts.py` using pydantic models, paired with
   `fixtures.json`. Jack writes both on day one and they are the single source of
-  truth; Austin and Ginger import the models directly. Runtime validation
-  catches the specific bug class this whole structure exists to prevent — a
-  price arriving as `"17.49"` instead of `17.49` raises immediately instead of
-  silently breaking an under-twenty-dollars filter at integration.
+  truth; Austin and Ginger import the models directly. The spec-required
+  `price: float | str` union cannot distinguish a dirty raw price from a
+  mistakenly stringified number by itself, so the contract adds a numeric-string
+  validator and makes `price_low`/`price_high` strict optional floats. Those are
+  the fields used by budget filtering and reconciliation, and `"17.49"` in any
+  numeric slot raises before integration.
 
 - **D-11:** One repository, everyone commits directly to `main`. Owned folders
   are disjoint (`catalog/` and `mcp_server/`, `graph/` and `prompts/`, `voice/`
   and `app/`), so genuine conflicts are confined to `contracts.py` and
   `requirements.txt`. Everyone seeing everyone's progress continuously is what
-  makes the August 13 sample-output checkpoint function at all.
+  makes the August 13 sample-output checkpoint function at all. Jack is the
+  project owner and final integrator: Austin and Ginger remain responsible for
+  their folders, while Jack is accountable for shared decisions, rubric
+  coverage, integration acceptance, documentation, and the final demo.
 
 - **D-12:** Briefs ship as **per-folder `CLAUDE.md` and `AGENTS.md`** with
   identical content. Claude Code auto-loads the first, Codex and Cursor auto-load
@@ -106,17 +117,21 @@ VOICE-01…04, UI-01…04.
 ### Demo Surface
 
 - **D-13:** Two-column layout — conversation on the left (microphone,
-  transcript, spoken answer, Play), evidence on the right (comparison table,
-  conflicts, step log, citations). Both halves stay visible simultaneously so
-  evidence appears while the presenter is still speaking, which is what actually
-  demonstrates reconciliation inside a seven-minute limit.
+  transcript, spoken answer, Play), evidence on the right. The comparison table
+  is the only evidence above the fold: three compact rows with 80px images and
+  Catalog (2020) beside Live, with price conflicts marked in place. The step log
+  and citations follow in expanded sections below; match details are collapsed.
+  This keeps reconciliation legible on a classroom projector instead of burying
+  it beneath diagnostic UI.
 
-- **D-14:** All four interface features are in scope for Phase 1: per-field
-  source badges, product images pulled from the dataset's image URLs, per-product
-  match confidence showing the similarity score and the LLM verdict, and a live
-  agent graph whose nodes light up as they execute. The agent graph is the
-  expensive one — it needs node events emitted as they fire, not an
-  after-the-fact log, which constrains how GRAPH-06 records step data.
+- **D-14:** The interface shows per-field source labels, compact product images,
+  and per-product match details. Match similarity, verdict and reason live in a
+  collapsed expander so they remain inspectable without competing with the
+  recommendation. The animated agent graph is explicitly cut: LangGraph
+  `.stream()` yields after a node finishes, so presenting its latest completed
+  node as “running” would be false. GRAPH-06 is satisfied by the visible step
+  log after execution; Ginger does not need to emit node-start events and Jack
+  does not simulate them from fixtures.
 
 - **D-15:** Interaction is one click, then fully hands-free — click to record,
   click to stop, and transcription, graph execution and speech playback all
@@ -129,7 +144,9 @@ VOICE-01…04, UI-01…04.
   metadata filter on private data alone, a **currency** query forcing the
   GRAPH-03 live escalation, and a **conflict** query on a product whose 2020 and
   live prices genuinely differ. The exact product picks require inspecting the
-  data and are a planning task. These three double as the demo script.
+  data and are a planning task. All three are the shared acceptance set; the
+  timed live demo shows the budget and conflict cases, while the currency case
+  remains a focused routing check and backup query.
 
 ### Claude's Discretion
 
@@ -177,11 +194,10 @@ VOICE-01…04, UI-01…04.
 
 ### Data
 
-- `dataset/marketing_sample_for_amazon_com-ecommerce__20200101_20200131__10k_data.csv`
-  — the mandated corpus, 10,002 rows, 28 columns, of which 13 are entirely
-  empty including `Brand Name`, `Ingredients`, `Sku` and `Asin`
-- `dataset/amazon_product_data_cleaned.csv` — verified to be the identical row
-  set with empty columns dropped; adds no information
+- `dataset/amazon_product_data_cleaned.csv` — the working corpus Jack commits before handoff:
+  10,002 rows from the mandated Amazon Product Dataset 2020 and 15 retained
+  columns. It is the same row set as the Kaggle original with its thirteen
+  entirely empty columns dropped.
 
 </canonical_refs>
 
@@ -193,12 +209,13 @@ the `dataset/` directory, and `.planning/`. Every file in this phase is new.
 
 ### Constraints standing in for existing patterns
 
-- **The dataset dictates more than the specification does.** Thirteen columns
-  are 100% empty across all 10,002 rows. There is no rating column and no
-  rating-shaped value anywhere in any other field. `sku` must be derived from
-  `Uniq Id`, which is fully populated and unique. `brand` must be derived from
-  the title and must return null rather than guess. `ingredients` stays null —
-  the specification marks it optional.
+- **The dataset dictates more than the specification does.** The Kaggle original
+  had thirteen columns that were 100% empty across all 10,002 rows; the working
+  cleaned CSV omits them. There is no rating column and no rating-shaped value
+  anywhere in any retained field. `sku` must be derived from `Uniq Id`, which is
+  fully populated and unique. `brand` must be derived from the title and must
+  return null rather than guess. `ingredients` stays null — the specification
+  marks it optional.
 - **The specification's suggested Household Cleaning slice does not exist.** A
   keyword sweep returns 55 rows, nearly all false positives. Actual composition
   is 6,662 Toys & Games, 830 blank, 708 Home & Kitchen, 630 Clothing, 540 Sports
@@ -235,8 +252,9 @@ the `dataset/` directory, and `.planning/`. Every file in this phase is new.
   honest answer when a match is wrong during the demo.
 
 - Recorded Serper fixtures serve two purposes deliberately: unblocking Austin
-  before a key exists, and surviving a network failure during the live
-  demonstration.
+  before a key exists, and surviving a Serper/API failure during the live
+  demonstration. They do not make ASR, the LLM, or TTS offline; the recorded
+  demonstration is the fallback for a complete network outage.
 
 </specifics>
 

@@ -16,8 +16,8 @@ misleading.
 | # | Phase | Owner | Target |
 |---|---|---|---|
 | 1 | Parallel Build | all three | Aug 10–16 |
-| 2 | Integration | Ginger leads | Aug 17–18 |
-| 3 | Delivery | Jack leads | Aug 19 |
+| 2 | Integration | Jack accountable; Ginger graph lead | Aug 17–18 |
+| 3 | Delivery | Jack | Aug 19 |
 
 ---
 
@@ -35,7 +35,7 @@ UI-01, UI-02, UI-03, UI-04
 **Plans:** 3 plans, all wave 1, running concurrently from day one. No plan blocks another.
 
 - [ ] `01-01-PLAN.md` — **Austin** · `catalog/`, `mcp_server/` · catalog normalization, Chroma index, hybrid retrieval, canonical queries, MCP server with both tools, caching, rate limiting, request logging
-- [ ] `01-02-PLAN.md` — **Ginger** · `graph/`, `prompts/` · LLM abstraction, state schema, four cooperative nodes, two-stage reconciliation, prompt library
+- [ ] `01-02-PLAN.md` — **Ginger** · `graph/`, `prompts/` · LLM abstraction, state schema, four cooperative nodes, three-stage selective reconciliation, prompt library
 - [ ] `01-03-PLAN.md` — **Jack** · repo root, `voice/`, `app/` · shared scaffolding first (`contracts.py`, `fixtures.json`, `.env.example`, Serper fixtures), then speech-to-text, text-to-speech, and the Streamlit interface
 
 **Why nobody waits:** Austin's opening work — parsing the catalog, cleaning prices,
@@ -60,7 +60,13 @@ spoken question produces a spoken answer through the complete system.
 
 **Requirements:** none unique — this phase makes the Phase 1 requirements work together
 
-**Owner:** Ginger leads, since the graph touches both neighbouring layers
+**Accountable owner:** Jack, as project owner and final integrator.
+
+**Technical lead:** Ginger owns the graph-side MCP adapter because the graph
+touches both neighbouring layers. Austin supports the MCP-server boundary; Jack
+owns app wiring and the end-to-end acceptance decision.
+
+**Plan:** `.planning/phases/02-integration/02-01-PLAN.md`
 
 **Sequence:** the two seams are done on separate days, never simultaneously. When two
 seams break at once there is no way to tell which side is at fault.
@@ -84,7 +90,9 @@ demonstration, and a recorded fallback.
 
 **Requirements:** DOC-01, DOC-02, DOC-03, DOC-05
 
-**Owner:** Jack leads
+**Owner:** Jack
+
+**Plan:** `.planning/phases/03-delivery/03-01-PLAN.md`
 
 **Success Criteria:**
 1. `prompts/` contains every prompt in use, each mapped to the node or tool that consumes it

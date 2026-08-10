@@ -55,11 +55,12 @@ surfaced rather than hidden — must work.
 
 **The dataset does not match what the assignment assumes.** The mandated corpus is
 the PromptCloud *Amazon Product Dataset 2020* from Kaggle, and inspection of all
-10,002 rows found that thirteen of its twenty-eight columns are entirely empty —
-including `Brand Name`, `Ingredients`, `Sku` and `Asin`. There is no rating column,
-and no rating-shaped value anywhere in any other field. A second copy of the file
-sourced from HuggingFace turned out to be the identical row set with the empty
-columns dropped, so it adds nothing.
+10,002 rows found that thirteen of its twenty-eight original columns are entirely
+empty — including `Brand Name`, `Ingredients`, `Sku` and `Asin`. There is no
+rating column, and no rating-shaped value anywhere in any other field. The
+working file, `dataset/amazon_product_data_cleaned.csv`, is the identical row set
+with those empty columns dropped; it is the copy designated for implementation
+and Jack must commit it before team handoff.
 
 The spec suggests slicing to Household Cleaning, but that category effectively does
 not exist here: a keyword sweep returns 55 rows and nearly all are false positives
