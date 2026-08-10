@@ -67,7 +67,7 @@ requirement traceable to a line in the grading rubric.
 | UI/UX — clean app, transcript, comparison table, audio playback | 10 | VOICE-02, VOICE-03, UI-01, UI-03 |
 | Presentation — demo under seven minutes, architecture, results, limitations | 10 | DOC-05 |
 | Prompt Disclosure — prompts, few-shot examples, node/tool mapping | 5 | DOC-01, DOC-02 |
-| **Total** | **100** | All 30 requirements mapped |
+| **Total** | **100** | All 33 requirements mapped |
 
 ## v2 — Deferred
 
@@ -90,8 +90,15 @@ the rubric rewards them.
 
 ## Traceability
 
-Filled in during roadmap creation.
-
 | Requirement | Phase |
 |---|---|
-| _pending_ | |
+| DOC-04 | 1 — Foundation |
+| RAG-01, RAG-02, RAG-03, RAG-04, RAG-05, RAG-06 | 2 — Parallel Build (PLAN-1, Austin) |
+| MCP-01, MCP-02, MCP-03, MCP-04, MCP-05, MCP-06, MCP-07 | 2 — Parallel Build (PLAN-1, Austin) |
+| GRAPH-01, GRAPH-02, GRAPH-03, GRAPH-04, GRAPH-05, GRAPH-06, GRAPH-07 | 2 — Parallel Build (PLAN-2, Ginger) |
+| VOICE-01, VOICE-02, VOICE-03, VOICE-04 | 2 — Parallel Build (PLAN-3, Jack) |
+| UI-01, UI-02, UI-03, UI-04 | 2 — Parallel Build (PLAN-3, Jack) |
+| DOC-01, DOC-02, DOC-03, DOC-05 | 4 — Delivery |
+
+All 33 requirements mapped to exactly one phase. Phase 3 (Integration) carries no
+unique requirements — it makes the Phase 2 requirements work together.
