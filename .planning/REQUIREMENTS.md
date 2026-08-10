@@ -92,13 +92,13 @@ the rubric rewards them.
 
 | Requirement | Phase |
 |---|---|
-| DOC-04 | 1 — Foundation |
-| RAG-01, RAG-02, RAG-03, RAG-04, RAG-05, RAG-06 | 2 — Parallel Build (PLAN-1, Austin) |
-| MCP-01, MCP-02, MCP-03, MCP-04, MCP-05, MCP-06, MCP-07 | 2 — Parallel Build (PLAN-1, Austin) |
-| GRAPH-01, GRAPH-02, GRAPH-03, GRAPH-04, GRAPH-05, GRAPH-06, GRAPH-07 | 2 — Parallel Build (PLAN-2, Ginger) |
-| VOICE-01, VOICE-02, VOICE-03, VOICE-04 | 2 — Parallel Build (PLAN-3, Jack) |
-| UI-01, UI-02, UI-03, UI-04 | 2 — Parallel Build (PLAN-3, Jack) |
-| DOC-01, DOC-02, DOC-03, DOC-05 | 4 — Delivery |
+| RAG-01, RAG-02, RAG-03, RAG-04, RAG-05, RAG-06 | 1 — Parallel Build (PLAN-1, Austin) |
+| MCP-01, MCP-02, MCP-03, MCP-04, MCP-05, MCP-06, MCP-07 | 1 — Parallel Build (PLAN-1, Austin) |
+| GRAPH-01, GRAPH-02, GRAPH-03, GRAPH-04, GRAPH-05, GRAPH-06, GRAPH-07 | 1 — Parallel Build (PLAN-2, Ginger) |
+| DOC-04 | 1 — Parallel Build (PLAN-3, Jack) |
+| VOICE-01, VOICE-02, VOICE-03, VOICE-04 | 1 — Parallel Build (PLAN-3, Jack) |
+| UI-01, UI-02, UI-03, UI-04 | 1 — Parallel Build (PLAN-3, Jack) |
+| DOC-01, DOC-02, DOC-03, DOC-05 | 3 — Delivery |
 
-All 33 requirements mapped to exactly one phase. Phase 3 (Integration) carries no
-unique requirements — it makes the Phase 2 requirements work together.
+All 33 requirements mapped to exactly one phase. Phase 2 (Integration) carries no
+unique requirements — it makes the Phase 1 requirements work together.

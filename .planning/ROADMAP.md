@@ -1,6 +1,6 @@
 # Roadmap
 
-**Voice-to-Voice Product Discovery Assistant** — 4 phases, 33 requirements, due August 20, 2026.
+**Voice-to-Voice Product Discovery Assistant** — 3 phases, 33 requirements, due August 20, 2026.
 
 Structure is **horizontal layers**: each owner builds a complete technical layer in
 isolation, and the layers are assembled near the end. Chosen because three people are
@@ -8,56 +8,41 @@ working simultaneously on a ten-day deadline, and the assignment specification
 already fixes two of the three internal interfaces, which makes independent work
 possible from day one.
 
+Shared scaffolding — the interface contract, mock fixtures, environment
+configuration — is the first task inside Jack's plan rather than a phase of its own.
+It is two hours of work and blocks nobody, so making it a gate would have been
+misleading.
+
 | # | Phase | Owner | Target |
 |---|---|---|---|
-| 1 | Foundation | Jack | Aug 10 |
-| 2 | Parallel Build | all three | Aug 11–16 |
-| 3 | Integration | Ginger leads | Aug 17–18 |
-| 4 | Delivery | Jack leads | Aug 19 |
+| 1 | Parallel Build | all three | Aug 10–16 |
+| 2 | Integration | Ginger leads | Aug 17–18 |
+| 3 | Delivery | Jack leads | Aug 19 |
 
 ---
 
-### Phase 1: Foundation
-
-**Goal:** Establish the shared scaffolding — repository structure, the interface
-contract, mock fixtures, and environment configuration — so that three people can
-build independently without colliding.
-
-**Requirements:** DOC-04
-
-**Owner:** Jack
-
-**Note on concurrency:** this phase does not block Phase 2. Austin's first stretch of
-work (parsing the catalog, cleaning prices, deriving brands, building the index) and
-Ginger's first stretch (LLM layer, state schema, router and planner nodes) depend on
-no decision made here. Both start on August 10 alongside this phase. The contract
-lands before either reaches the code that consumes it.
-
-**Success Criteria:**
-1. Each owner has a folder they exclusively own, and no two owners share a file
-2. `rag.search` and `web.search` return shapes are written down, matching the spec verbatim
-3. A fixtures file provides realistic mock data drawn from the actual dataset, so any track can run without the others
-4. `.env.example` names every required variable, with no real secrets in the repository
-5. Each owner can run their own code from a clean checkout
-
----
-
-### Phase 2: Parallel Build
+### Phase 1: Parallel Build
 
 **Goal:** Three complete, independently working layers — a data and tool layer, an
 agent orchestration layer, and a voice and interface layer — each verified in
 isolation against mocks.
 
-**Requirements:** RAG-01, RAG-02, RAG-03, RAG-04, RAG-05, RAG-06, MCP-01, MCP-02,
-MCP-03, MCP-04, MCP-05, MCP-06, MCP-07, GRAPH-01, GRAPH-02, GRAPH-03, GRAPH-04,
-GRAPH-05, GRAPH-06, GRAPH-07, VOICE-01, VOICE-02, VOICE-03, VOICE-04, UI-01, UI-02,
-UI-03, UI-04
+**Requirements:** DOC-04, RAG-01, RAG-02, RAG-03, RAG-04, RAG-05, RAG-06, MCP-01,
+MCP-02, MCP-03, MCP-04, MCP-05, MCP-06, MCP-07, GRAPH-01, GRAPH-02, GRAPH-03,
+GRAPH-04, GRAPH-05, GRAPH-06, GRAPH-07, VOICE-01, VOICE-02, VOICE-03, VOICE-04,
+UI-01, UI-02, UI-03, UI-04
 
-**Plans:** three, running concurrently.
+**Plans:** three, running concurrently from day one. No plan blocks another.
 
 - **PLAN-1 — Austin** · `catalog/`, `mcp_server/` · catalog normalization, vector index, hybrid retrieval, MCP server with both tools, caching, rate limiting, request logging
 - **PLAN-2 — Ginger** · `graph/`, `prompts/` · LLM abstraction, state schema, four cooperative nodes, reconciliation, prompt library
-- **PLAN-3 — Jack** · `voice/`, `app/` · speech-to-text, text-to-speech, Streamlit interface with comparison table, conflict badges, step log and citations
+- **PLAN-3 — Jack** · `voice/`, `app/` · shared scaffolding first (contract, fixtures, `.env.example`), then speech-to-text, text-to-speech, and the Streamlit interface
+
+**Why nobody waits:** Austin's opening work — parsing the catalog, cleaning prices,
+deriving brands, building the index — depends on no interface decision. Ginger's
+opening work — LLM abstraction, state schema, router and planner nodes — consumes
+only a schema the assignment already dictates, and she can stub the tools herself in
+two lines. Jack's scaffolding lands before either reaches code that needs it.
 
 **Success Criteria:**
 1. A spoken-language query with a budget constraint returns correctly filtered products from the private catalog
@@ -68,12 +53,12 @@ UI-03, UI-04
 
 ---
 
-### Phase 3: Integration
+### Phase 2: Integration
 
 **Goal:** Replace every mock with the real component, one seam at a time, until a
 spoken question produces a spoken answer through the complete system.
 
-**Requirements:** none unique — this phase makes the Phase 2 requirements work together
+**Requirements:** none unique — this phase makes the Phase 1 requirements work together
 
 **Owner:** Ginger leads, since the graph touches both neighbouring layers
 
@@ -92,7 +77,7 @@ seams break at once there is no way to tell which side is at fault.
 
 ---
 
-### Phase 4: Delivery
+### Phase 3: Delivery
 
 **Goal:** The submission itself — prompt disclosure, documentation, a rehearsed
 demonstration, and a recorded fallback.
@@ -116,15 +101,14 @@ All 33 v1 requirements are mapped to exactly one phase.
 
 | Phase | Count | Requirements |
 |---|---:|---|
-| 1 — Foundation | 1 | DOC-04 |
-| 2 — Parallel Build | 28 | RAG-01…06, MCP-01…07, GRAPH-01…07, VOICE-01…04, UI-01…04 |
-| 3 — Integration | 0 | — |
-| 4 — Delivery | 4 | DOC-01, DOC-02, DOC-03, DOC-05 |
+| 1 — Parallel Build | 29 | DOC-04, RAG-01…06, MCP-01…07, GRAPH-01…07, VOICE-01…04, UI-01…04 |
+| 2 — Integration | 0 | — |
+| 3 — Delivery | 4 | DOC-01, DOC-02, DOC-03, DOC-05 |
 | **Total** | **33** | complete |
 
 ## Risks
 
 - **Integration lands late with no slack behind it.** Mitigated by the August 13 sample-output exchange, which surfaces shape mismatches four days before they would otherwise appear.
 - **The user-facing layer sits with the busiest person.** Mitigated by building the interface against fixtures from day one, so a demonstrable shell exists regardless of engine progress.
-- **The live demonstration has network calls in its critical path.** Mitigated by the Phase 4 backup recording.
+- **The live demonstration has network calls in its critical path.** Mitigated by the Phase 3 backup recording.
 - **The catalog carries no ratings.** Not mitigated — it is designed around, and disclosed in the demonstration as a limitation.

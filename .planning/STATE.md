@@ -2,7 +2,7 @@
 gsd_state_version: '1.0'
 status: planning
 progress:
-  total_phases: 4
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -16,14 +16,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-10)
 
 **Core value:** A spoken question returns a grounded, cited recommendation that visibly reconciles stale private catalog data against live web data.
-**Current focus:** Phase 1 — Foundation
+**Current focus:** Phase 1 — Parallel Build
 
 ## Current Position
 
-Phase: 1 of 4 (Foundation)
-Plan: 0 of 0 in current phase
+Phase: 1 of 3 (Parallel Build)
+Plan: 0 of 3 in current phase
 Status: Ready to plan
-Last activity: 2026-08-10 — Project initialized; PROJECT.md, config, requirements and roadmap created
+Last activity: 2026-08-10 — Project initialized; roadmap restructured to 3 phases with scaffolding folded into Jack's plan
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -56,7 +56,8 @@ Recent decisions affecting current work:
 - [Init]: Keep the mandated Amazon 2020 dataset despite thirteen empty columns and no ratings — swapping risks the grade
 - [Init]: Index all ~10,000 rows rather than a single category slice; the spec's suggested Household Cleaning slice does not exist in this data
 - [Init]: Source ratings from `web.search` via Serper's shopping endpoint, since the catalog has none — never fabricate
-- [Init]: Horizontal-layers phase structure with three concurrent plans in Phase 2, driven by a three-person team on a ten-day deadline
+- [Init]: Horizontal-layers phase structure with three concurrent plans in Phase 1, driven by a three-person team on a ten-day deadline
+- [Init]: Shared scaffolding folded into Jack's plan as its first task rather than being its own phase — two hours of work that blocks nobody, so a phase gate would have misrepresented it
 - [Init]: Skip GSD's researcher, plan-checker and verifier agents — the specification is the research, and humans are building
 
 ### Team Ownership
@@ -89,5 +90,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-10
-Stopped at: Roadmap created; four phases defined with all 33 requirements mapped
+Stopped at: Roadmap restructured to three phases; all 33 requirements mapped; ready to plan Phase 1
 Resume file: None
