@@ -1,0 +1,47 @@
+[
+  {
+    "id": "budget_500_piece_puzzle",
+    "transcript": "Find me a 500 piece jigsaw puzzle under twenty dollars.",
+    "semantic_query": "500 piece jigsaw puzzle",
+    "filters": {
+      "price_max": 20.0,
+      "category": "Toys & Games"
+    },
+    "why": "Exercises private semantic retrieval plus numeric budget and category metadata filters without live escalation.",
+    "expected_doc_ids": [
+      "AMZ-C8BC973C",
+      "AMZ-1AF647A8",
+      "AMZ-6048F7ED"
+    ],
+    "notes": "All three expected results are 500-piece jigsaw puzzles priced at $10.99, $13.69, and $12.95 in the 2020 catalog; exclude 1,500-piece items and storage accessories even when their titles contain 500.",
+    "status": "final"
+  },
+  {
+    "id": "currency_lego_suitcase",
+    "transcript": "What is the current price and availability of the LEGO Classic Creative Suitcase 10713?",
+    "semantic_query": "LEGO Classic Creative Suitcase 10713 213 piece building kit",
+    "filters": {
+      "brand": "LEGO"
+    },
+    "why": "The explicit current-price and availability language forces the planner to add live web evidence.",
+    "expected_doc_ids": [
+      "AMZ-7E063675"
+    ],
+    "notes": "Exact set 10713 with 213 pieces; do not compare it with a different LEGO set or piece count.",
+    "status": "final"
+  },
+  {
+    "id": "conflict_nerf_strongarm",
+    "transcript": "Compare the current price of the Nerf N Strike Elite Strongarm blaster with the catalog price.",
+    "semantic_query": "Nerf N Strike Elite Strongarm blaster 6 darts",
+    "filters": {
+      "brand": "Nerf"
+    },
+    "why": "Demonstrates a genuine historical-versus-live price disagreement for the same identifiable product variant.",
+    "expected_doc_ids": [
+      "AMZ-7E4E86AE"
+    ],
+    "notes": "Same Strongarm six-dart blaster: Amazon 2020 catalog price $13.99; Walmart live listing observed at $24.99 on 2026-08-10. Exclude the one-dart MicroShots miniature and refill bundles.",
+    "status": "final"
+  }
+]

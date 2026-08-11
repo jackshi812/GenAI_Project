@@ -1,0 +1,159 @@
+## tools/list
+[
+  {
+    "name": "rag.search",
+    "description": "Search the private Amazon Product Dataset 2020 catalog with semantic retrieval and metadata filters. The private corpus contains no ratings.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        },
+        "price_max": {
+          "type": "number"
+        },
+        "price_min": {
+          "type": "number"
+        },
+        "category": {
+          "type": "string"
+        },
+        "brand": {
+          "type": "string"
+        },
+        "k": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 5
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "web.search",
+    "description": "Search current shopping evidence through Serper, or replay an exact recorded Serper response when no API key is configured.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        },
+        "num": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 10
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    }
+  }
+]
+
+## rag.search
+[
+  {
+    "sku": "c8bc973c51a067aa1fc9166ce1c7dfce",
+    "title": "Buffalo Games - Pokémon Bubble - 500 Piece Jigsaw Puzzle",
+    "price": 10.99,
+    "rating": null,
+    "brand": "Buffalo",
+    "ingredients": null,
+    "doc_id": "AMZ-C8BC973C",
+    "image_url": "https://images-na.ssl-images-amazon.com/images/I/61KVcio6QkL.jpg",
+    "product_url": "https://www.amazon.com/Buffalo-Games-Pok%C3%A9mon-Bubble-Jigsaw/dp/B07Q47KFGS",
+    "category": "Toys & Games",
+    "price_low": 10.99,
+    "price_high": 10.99,
+    "similarity": 0.60753,
+    "budget_fit": "within"
+  },
+  {
+    "sku": "1af647a86d0fd4a126c313258cbe06cd",
+    "title": "Springbok Puzzles - Americana - 500 Piece Jigsaw Puzzle - Large 18 Inches by 23.5 Inches Puzzle - Made in USA - Unique Cut Interlocking Pieces",
+    "price": 13.69,
+    "rating": null,
+    "brand": "Springbok",
+    "ingredients": null,
+    "doc_id": "AMZ-1AF647A8",
+    "image_url": "https://images-na.ssl-images-amazon.com/images/I/61yfxDABJWL.jpg",
+    "product_url": "https://www.amazon.com/Springbok-Puzzles-Americana-Jigsaw-Interlocking/dp/B00LT92RQG",
+    "category": "Toys & Games",
+    "price_low": 13.69,
+    "price_high": 13.69,
+    "similarity": 0.586421,
+    "budget_fit": "within"
+  },
+  {
+    "sku": "6048f7edc0e7a49f2f16f4369bace9ea",
+    "title": "Springbok Puzzles - Feathered Friends Jigsaw Puzzle - 500 Pieces - Large 18 Inch by 23.5 Inch Puzzle",
+    "price": 12.95,
+    "rating": null,
+    "brand": "Springbok",
+    "ingredients": null,
+    "doc_id": "AMZ-6048F7ED",
+    "image_url": "https://images-na.ssl-images-amazon.com/images/I/61ctAQVbpYL.jpg",
+    "product_url": "https://www.amazon.com/Springbok-Puzzles-Feathered-Friends-Jigsaw/dp/B07DLCZZDD",
+    "category": "Toys & Games",
+    "price_low": 12.95,
+    "price_high": 12.95,
+    "similarity": 0.570849,
+    "budget_fit": "within"
+  },
+  {
+    "sku": "794181cf5917276a3a2c75c379487c12",
+    "title": "Buffalo Games - Game of Thrones - For The Throne - 500 Piece Jigsaw Puzzle",
+    "price": 10.99,
+    "rating": null,
+    "brand": "Buffalo",
+    "ingredients": null,
+    "doc_id": "AMZ-794181CF",
+    "image_url": "https://images-na.ssl-images-amazon.com/images/I/513pp8hnVmL.jpg",
+    "product_url": "https://www.amazon.com/Buffalo-Games-Thrones-Throne-Puzzle/dp/B07Q5C7RDY",
+    "category": "Toys & Games",
+    "price_low": 10.99,
+    "price_high": 10.99,
+    "similarity": 0.552586,
+    "budget_fit": "within"
+  },
+  {
+    "sku": "fd3dfed13bd546c46511b27a90daee9d",
+    "title": "LANG - 500 Piece Puzzle -\"Magical Evening\", Artwork by Laura Berry - Linen Finish - 24” x 18” Completed",
+    "price": 9.87,
+    "rating": null,
+    "brand": "LANG",
+    "ingredients": null,
+    "doc_id": "AMZ-FD3DFED1",
+    "image_url": "https://images-na.ssl-images-amazon.com/images/I/61LXeeD%2BnzL.jpg",
+    "product_url": "https://www.amazon.com/LANG-Magical-Evening-Artwork-Completed/dp/B01C9U4C4I",
+    "category": "Toys & Games",
+    "price_low": 9.87,
+    "price_high": 9.87,
+    "similarity": 0.566143,
+    "budget_fit": "within"
+  }
+]
+
+## web.search first call (0.0017s)
+[]
+
+## web.search cached call (0.0014s)
+[]
+
+## last six MCP log lines
+{"timestamp": "2026-08-11T00:08:38.273076+00:00", "direction": "request", "tool": "web.search", "arguments": {"query": "Nerf N Strike Elite Strongarm Toy Blaster with Rotating Barrel, Slam Fire, and 6 Official Nerf Elite Darts for Kids, Teens, & Adults(Amazon Exclusive)", "num": 10}}
+{"timestamp": "2026-08-11T00:08:38.273239+00:00", "direction": "event", "event": "fixture_file_missing", "fixture_id": "nerf n strike elite strongarm toy blaster with"}
+{"timestamp": "2026-08-11T00:08:38.273334+00:00", "direction": "response", "tool": "web.search", "elapsed_ms": 0.266, "result_count": 0, "source_urls": []}
+{"timestamp": "2026-08-11T00:08:38.274629+00:00", "direction": "request", "tool": "web.search", "arguments": {"query": "Nerf N Strike Elite Strongarm Toy Blaster with Rotating Barrel, Slam Fire, and 6 Official Nerf Elite Darts for Kids, Teens, & Adults(Amazon Exclusive)", "num": 10}}
+{"timestamp": "2026-08-11T00:08:38.274749+00:00", "direction": "event", "event": "cache", "cache": "hit", "query": "nerf n strike elite strongarm toy blaster with rotating barrel, slam fire, and 6 official nerf elite darts for kids, teens, & adults(amazon exclusive)"}
+{"timestamp": "2026-08-11T00:08:38.274834+00:00", "direction": "response", "tool": "web.search", "elapsed_ms": 0.211, "result_count": 0, "source_urls": []}
