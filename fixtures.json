@@ -1,0 +1,165 @@
+{
+  "rag_results": [
+    {
+      "sku": "c8bc973c51a067aa1fc9166ce1c7dfce",
+      "title": "Buffalo Games - Pokémon Bubble - 500 Piece Jigsaw Puzzle",
+      "price": 10.99,
+      "rating": null,
+      "brand": "Buffalo",
+      "ingredients": null,
+      "doc_id": "AMZ-C8BC973C",
+      "image_url": "https://images-na.ssl-images-amazon.com/images/I/61KVcio6QkL.jpg",
+      "product_url": "https://www.amazon.com/Buffalo-Games-Pok%C3%A9mon-Bubble-Jigsaw/dp/B07Q47KFGS",
+      "category": "Toys & Games",
+      "price_low": 10.99,
+      "price_high": 10.99,
+      "similarity": 0.60753,
+      "budget_fit": "within"
+    },
+    {
+      "sku": "1af647a86d0fd4a126c313258cbe06cd",
+      "title": "Springbok Puzzles - Americana - 500 Piece Jigsaw Puzzle - Large 18 Inches by 23.5 Inches Puzzle - Made in USA - Unique Cut Interlocking Pieces",
+      "price": 13.69,
+      "rating": null,
+      "brand": "Springbok",
+      "ingredients": null,
+      "doc_id": "AMZ-1AF647A8",
+      "image_url": "https://images-na.ssl-images-amazon.com/images/I/61yfxDABJWL.jpg",
+      "product_url": "https://www.amazon.com/Springbok-Puzzles-Americana-Jigsaw-Interlocking/dp/B00LT92RQG",
+      "category": "Toys & Games",
+      "price_low": 13.69,
+      "price_high": 13.69,
+      "similarity": 0.586421,
+      "budget_fit": "within"
+    },
+    {
+      "sku": "6048f7edc0e7a49f2f16f4369bace9ea",
+      "title": "Springbok Puzzles - Feathered Friends Jigsaw Puzzle - 500 Pieces - Large 18 Inch by 23.5 Inch Puzzle",
+      "price": 12.95,
+      "rating": null,
+      "brand": "Springbok",
+      "ingredients": null,
+      "doc_id": "AMZ-6048F7ED",
+      "image_url": "https://images-na.ssl-images-amazon.com/images/I/61ctAQVbpYL.jpg",
+      "product_url": "https://www.amazon.com/Springbok-Puzzles-Feathered-Friends-Jigsaw/dp/B07DLCZZDD",
+      "category": "Toys & Games",
+      "price_low": 12.95,
+      "price_high": 12.95,
+      "similarity": 0.570849,
+      "budget_fit": "within"
+    },
+    {
+      "sku": "7e063675c29a16b84392b4d4fe47d01c",
+      "title": "LEGO Classic Creative Suitcase 10713 Building Kit (213 Pieces)",
+      "price": 19.78,
+      "rating": null,
+      "brand": "LEGO",
+      "ingredients": null,
+      "doc_id": "AMZ-7E063675",
+      "image_url": "https://images-na.ssl-images-amazon.com/images/I/51TE9xBQtkL.jpg",
+      "product_url": "https://www.amazon.com/LEGO-Classic-Creative-Suitcase-Building/dp/B075QRWRYP",
+      "category": "Toys & Games",
+      "price_low": 19.78,
+      "price_high": 19.78,
+      "similarity": 0.792619,
+      "budget_fit": "unknown"
+    },
+    {
+      "sku": "7e4e86ae3679c4f42cf34661cd01e6c2",
+      "title": "Nerf N Strike Elite Strongarm Toy Blaster with Rotating Barrel, Slam Fire, and 6 Official Nerf Elite Darts for Kids, Teens, & Adults(Amazon Exclusive)",
+      "price": 13.99,
+      "rating": null,
+      "brand": "Nerf",
+      "ingredients": null,
+      "doc_id": "AMZ-7E4E86AE",
+      "image_url": "https://images-na.ssl-images-amazon.com/images/I/41S49cwqn8L.jpg",
+      "product_url": "https://www.amazon.com/Nerf-N-Strike-Elite-Strongarm-Blaster/dp/B00DW1JT5G",
+      "category": "Toys & Games",
+      "price_low": 13.99,
+      "price_high": 13.99,
+      "similarity": 0.766636,
+      "budget_fit": "unknown"
+    }
+  ],
+  "web_results": {
+    "Buffalo Games - Pokémon Bubble - 500 Piece Jigsaw Puzzle": [
+      {
+        "title": "Buffalo Games Pokemon Bubble 500 Piece Jigsaw Puzzle",
+        "url": "https://www.ebay.com/sch/i.html?_nkw=Buffalo+Games+Pokemon+Bubble+500+Piece+Jigsaw+Puzzle",
+        "snippet": "eBay · Retailer search fallback",
+        "price": 10.0,
+        "availability": null,
+        "rating": 5.0
+      }
+    ],
+    "Springbok Puzzles - Americana - 500 Piece Jigsaw Puzzle - Large 18 Inches by 23.5 Inches Puzzle - Made in USA - Unique Cut Interlocking Pieces": [
+      {
+        "title": "Springbok \"americana\" 500 Piece Puzzle Made In Usa",
+        "url": "https://www.ebay.com/sch/i.html?_nkw=Springbok+%22americana%22+500+Piece+Puzzle+Made+In+Usa",
+        "snippet": "eBay - mjsfinds · Retailer search fallback",
+        "price": 9.99,
+        "availability": null,
+        "rating": null
+      },
+      {
+        "title": "Springbok AMERICANA 500 Piece Jigsaw Puzzle",
+        "url": "https://www.ebay.com/sch/i.html?_nkw=Springbok+AMERICANA+500+Piece+Jigsaw+Puzzle",
+        "snippet": "eBay - mgb7557 · Retailer search fallback",
+        "price": 17.95,
+        "availability": null,
+        "rating": null
+      }
+    ],
+    "Springbok Puzzles - Feathered Friends Jigsaw Puzzle - 500 Pieces - Large 18 Inch by 23.5 Inch Puzzle": [
+      {
+        "title": "Feathered Friends Puzzle",
+        "url": "https://www.ebay.com/sch/i.html?_nkw=Feathered+Friends+Puzzle",
+        "snippet": "eBay · Retailer search fallback",
+        "price": 15.5,
+        "availability": null,
+        "rating": null
+      }
+    ],
+    "LEGO Classic Creative Suitcase 10713 Building Kit (213 Pieces)": [
+      {
+        "title": "LEGO Classic Creative Suitcase",
+        "url": "https://www.ebay.com/sch/i.html?_nkw=LEGO+Classic+Creative+Suitcase",
+        "snippet": "eBay · Retailer search fallback",
+        "price": 12.95,
+        "availability": null,
+        "rating": 4.8
+      }
+    ],
+    "Nerf N Strike Elite Strongarm Toy Blaster with Rotating Barrel, Slam Fire, and 6 Official Nerf Elite Darts for Kids, Teens, & Adults(Amazon Exclusive)": [
+      {
+        "title": "Nerf N Strike Elite Strongarm Toy Blaster Rotating Barrel Slam Fire",
+        "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N+Strike+Elite+Strongarm+Toy+Blaster+Rotating+Barrel+Slam+Fire",
+        "snippet": "eBay · Retailer search fallback",
+        "price": 21.95,
+        "availability": null,
+        "rating": 3.5
+      },
+      {
+        "title": "Nerf N Strike Elite Strongarm Toy Blaster With Rotating Barrel Slam",
+        "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N+Strike+Elite+Strongarm+Toy+Blaster+With+Rotating+Barrel+Slam",
+        "snippet": "eBay · Retailer search fallback",
+        "price": 10.95,
+        "availability": null,
+        "rating": 4.8
+      },
+      {
+        "title": "2014 Nerf N-strike Elite Strongarm 6 Dart Slam Fire Kids Toy - /",
+        "url": "https://www.ebay.com/sch/i.html?_nkw=2014+Nerf+N-strike+Elite+Strongarm+6+Dart+Slam+Fire+Kids+Toy+-+%2F",
+        "snippet": "eBay · Retailer search fallback",
+        "price": 29.95,
+        "availability": null,
+        "rating": 4.6
+      }
+    ]
+  },
+  "canonical_transcripts": [
+    "Find me a 500 piece jigsaw puzzle under twenty dollars.",
+    "What is the current price and availability of the LEGO Classic Creative Suitcase 10713?",
+    "Compare the current price of the Nerf N Strike Elite Strongarm blaster with the catalog price."
+  ]
+}
