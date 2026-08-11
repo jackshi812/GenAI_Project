@@ -144,16 +144,178 @@
   }
 ]
 
-## web.search first call (0.0017s)
-[]
+## web.search first call (0.0023s)
+[
+  {
+    "title": "Nerf N-Strike Elite Strongarm Blaster",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-Strike+Elite+Strongarm+Blaster",
+    "snippet": "eBay - wolverine_trends · Retailer search fallback",
+    "price": 16.95,
+    "availability": null,
+    "rating": 4.6
+  },
+  {
+    "title": "Nerf N Strike Elite Strongarm Toy Blaster With Rotating Barrel Slam",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N+Strike+Elite+Strongarm+Toy+Blaster+With+Rotating+Barrel+Slam",
+    "snippet": "eBay · Retailer search fallback",
+    "price": 10.95,
+    "availability": null,
+    "rating": 4.8
+  },
+  {
+    "title": "2014 Nerf N-strike Elite Strongarm 6 Dart Slam Fire Kids Toy - /",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=2014+Nerf+N-strike+Elite+Strongarm+6+Dart+Slam+Fire+Kids+Toy+-+%2F",
+    "snippet": "eBay · Retailer search fallback",
+    "price": 29.95,
+    "availability": null,
+    "rating": 4.6
+  },
+  {
+    "title": "Nerf N- Strike Elite Strongarm Blaster",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-+Strike+Elite+Strongarm+Blaster",
+    "snippet": "eBay - jacqoo218 · Retailer search fallback",
+    "price": 9.99,
+    "availability": null,
+    "rating": 4.4
+  },
+  {
+    "title": "Hasbro Strongarm Nerf N-Strike Elite Toy Blaster",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Hasbro+Strongarm+Nerf+N-Strike+Elite+Toy+Blaster",
+    "snippet": "eBay - blackhorsegames · Retailer search fallback",
+    "price": 16.99,
+    "availability": null,
+    "rating": null
+  },
+  {
+    "title": "Nerf N-strike Elite Strongarm Blaster With 12 Elite Darts - Shoots Up",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-strike+Elite+Strongarm+Blaster+With+12+Elite+Darts+-+Shoots+Up",
+    "snippet": "eBay · Retailer search fallback",
+    "price": 35.0,
+    "availability": null,
+    "rating": 3.6
+  },
+  {
+    "title": "Nerf N Strike Elite Strongarm 5 Dart Blaster Darts +6 Darts Kids",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N+Strike+Elite+Strongarm+5+Dart+Blaster+Darts+%2B6+Darts+Kids",
+    "snippet": "eBay · Retailer search fallback",
+    "price": 14.0,
+    "availability": null,
+    "rating": 4.6
+  },
+  {
+    "title": "Nerf N-strike Elite Strongarm Slam-fire Dart Blaster - Teal Color -",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-strike+Elite+Strongarm+Slam-fire+Dart+Blaster+-+Teal+Color+-",
+    "snippet": "eBay · Retailer search fallback",
+    "price": 18.49,
+    "availability": null,
+    "rating": 4.6
+  },
+  {
+    "title": "Nerf Elite Disruptor",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+Elite+Disruptor",
+    "snippet": "eBay - d1stopshopla · Retailer search fallback",
+    "price": 39.95,
+    "availability": null,
+    "rating": 4.7
+  },
+  {
+    "title": "NERF N-STRIKE ELITE STRONGARM BLASTER + 12 SOFT FOAM DARTS + 1 MAGAZINE",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=NERF+N-STRIKE+ELITE+STRONGARM+BLASTER+%2B+12+SOFT+FOAM+DARTS+%2B+1+MAGAZINE",
+    "snippet": "eBay · Retailer search fallback",
+    "price": 18.99,
+    "availability": null,
+    "rating": 4.6
+  }
+]
 
-## web.search cached call (0.0014s)
-[]
+## web.search cached call (0.0015s)
+[
+  {
+    "title": "Nerf N-Strike Elite Strongarm Blaster",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-Strike+Elite+Strongarm+Blaster",
+    "snippet": "eBay - wolverine_trends · Retailer search fallback",
+    "price": 16.95,
+    "availability": null,
+    "rating": 4.6
+  },
+  {
+    "title": "Nerf N Strike Elite Strongarm Toy Blaster With Rotating Barrel Slam",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N+Strike+Elite+Strongarm+Toy+Blaster+With+Rotating+Barrel+Slam",
+    "snippet": "eBay · Retailer search fallback",
+    "price": 10.95,
+    "availability": null,
+    "rating": 4.8
+  },
+  {
+    "title": "2014 Nerf N-strike Elite Strongarm 6 Dart Slam Fire Kids Toy - /",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=2014+Nerf+N-strike+Elite+Strongarm+6+Dart+Slam+Fire+Kids+Toy+-+%2F",
+    "snippet": "eBay · Retailer search fallback",
+    "price": 29.95,
+    "availability": null,
+    "rating": 4.6
+  },
+  {
+    "title": "Nerf N- Strike Elite Strongarm Blaster",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-+Strike+Elite+Strongarm+Blaster",
+    "snippet": "eBay - jacqoo218 · Retailer search fallback",
+    "price": 9.99,
+    "availability": null,
+    "rating": 4.4
+  },
+  {
+    "title": "Hasbro Strongarm Nerf N-Strike Elite Toy Blaster",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Hasbro+Strongarm+Nerf+N-Strike+Elite+Toy+Blaster",
+    "snippet": "eBay - blackhorsegames · Retailer search fallback",
+    "price": 16.99,
+    "availability": null,
+    "rating": null
+  },
+  {
+    "title": "Nerf N-strike Elite Strongarm Blaster With 12 Elite Darts - Shoots Up",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-strike+Elite+Strongarm+Blaster+With+12+Elite+Darts+-+Shoots+Up",
+    "snippet": "eBay · Retailer search fallback",
+    "price": 35.0,
+    "availability": null,
+    "rating": 3.6
+  },
+  {
+    "title": "Nerf N Strike Elite Strongarm 5 Dart Blaster Darts +6 Darts Kids",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N+Strike+Elite+Strongarm+5+Dart+Blaster+Darts+%2B6+Darts+Kids",
+    "snippet": "eBay · Retailer search fallback",
+    "price": 14.0,
+    "availability": null,
+    "rating": 4.6
+  },
+  {
+    "title": "Nerf N-strike Elite Strongarm Slam-fire Dart Blaster - Teal Color -",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-strike+Elite+Strongarm+Slam-fire+Dart+Blaster+-+Teal+Color+-",
+    "snippet": "eBay · Retailer search fallback",
+    "price": 18.49,
+    "availability": null,
+    "rating": 4.6
+  },
+  {
+    "title": "Nerf Elite Disruptor",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=Nerf+Elite+Disruptor",
+    "snippet": "eBay - d1stopshopla · Retailer search fallback",
+    "price": 39.95,
+    "availability": null,
+    "rating": 4.7
+  },
+  {
+    "title": "NERF N-STRIKE ELITE STRONGARM BLASTER + 12 SOFT FOAM DARTS + 1 MAGAZINE",
+    "url": "https://www.ebay.com/sch/i.html?_nkw=NERF+N-STRIKE+ELITE+STRONGARM+BLASTER+%2B+12+SOFT+FOAM+DARTS+%2B+1+MAGAZINE",
+    "snippet": "eBay · Retailer search fallback",
+    "price": 18.99,
+    "availability": null,
+    "rating": 4.6
+  }
+]
 
 ## last six MCP log lines
-{"timestamp": "2026-08-11T00:08:38.273076+00:00", "direction": "request", "tool": "web.search", "arguments": {"query": "Nerf N Strike Elite Strongarm Toy Blaster with Rotating Barrel, Slam Fire, and 6 Official Nerf Elite Darts for Kids, Teens, & Adults(Amazon Exclusive)", "num": 10}}
-{"timestamp": "2026-08-11T00:08:38.273239+00:00", "direction": "event", "event": "fixture_file_missing", "fixture_id": "nerf n strike elite strongarm toy blaster with"}
-{"timestamp": "2026-08-11T00:08:38.273334+00:00", "direction": "response", "tool": "web.search", "elapsed_ms": 0.266, "result_count": 0, "source_urls": []}
-{"timestamp": "2026-08-11T00:08:38.274629+00:00", "direction": "request", "tool": "web.search", "arguments": {"query": "Nerf N Strike Elite Strongarm Toy Blaster with Rotating Barrel, Slam Fire, and 6 Official Nerf Elite Darts for Kids, Teens, & Adults(Amazon Exclusive)", "num": 10}}
-{"timestamp": "2026-08-11T00:08:38.274749+00:00", "direction": "event", "event": "cache", "cache": "hit", "query": "nerf n strike elite strongarm toy blaster with rotating barrel, slam fire, and 6 official nerf elite darts for kids, teens, & adults(amazon exclusive)"}
-{"timestamp": "2026-08-11T00:08:38.274834+00:00", "direction": "response", "tool": "web.search", "elapsed_ms": 0.211, "result_count": 0, "source_urls": []}
+{"timestamp": "2026-08-11T19:37:34.776854+00:00", "direction": "event", "event": "allowlist_drop", "count": 1}
+{"timestamp": "2026-08-11T19:37:34.776919+00:00", "direction": "event", "event": "retailer_search_fallback", "count": 10}
+{"timestamp": "2026-08-11T19:37:34.777014+00:00", "direction": "response", "tool": "web.search", "elapsed_ms": 0.856, "result_count": 10, "source_urls": ["https://www.ebay.com/sch/i.html?_nkw=Nerf+N-Strike+Elite+Strongarm+Blaster", "https://www.ebay.com/sch/i.html?_nkw=Nerf+N+Strike+Elite+Strongarm+Toy+Blaster+With+Rotating+Barrel+Slam", "https://www.ebay.com/sch/i.html?_nkw=2014+Nerf+N-strike+Elite+Strongarm+6+Dart+Slam+Fire+Kids+Toy+-+%2F", "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-+Strike+Elite+Strongarm+Blaster", "https://www.ebay.com/sch/i.html?_nkw=Hasbro+Strongarm+Nerf+N-Strike+Elite+Toy+Blaster", "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-strike+Elite+Strongarm+Blaster+With+12+Elite+Darts+-+Shoots+Up", "https://www.ebay.com/sch/i.html?_nkw=Nerf+N+Strike+Elite+Strongarm+5+Dart+Blaster+Darts+%2B6+Darts+Kids", "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-strike+Elite+Strongarm+Slam-fire+Dart+Blaster+-+Teal+Color+-", "https://www.ebay.com/sch/i.html?_nkw=Nerf+Elite+Disruptor", "https://www.ebay.com/sch/i.html?_nkw=NERF+N-STRIKE+ELITE+STRONGARM+BLASTER+%2B+12+SOFT+FOAM+DARTS+%2B+1+MAGAZINE"]}
+{"timestamp": "2026-08-11T19:37:34.778333+00:00", "direction": "request", "tool": "web.search", "arguments": {"query": "Nerf N Strike Elite Strongarm Toy Blaster with Rotating Barrel, Slam Fire, and 6 Official Nerf Elite Darts for Kids, Teens, & Adults(Amazon Exclusive)", "num": 10}}
+{"timestamp": "2026-08-11T19:37:34.778467+00:00", "direction": "event", "event": "cache", "cache": "hit", "query": "nerf n strike elite strongarm toy blaster with rotating barrel, slam fire, and 6 official nerf elite darts for kids, teens, & adults(amazon exclusive)"}
+{"timestamp": "2026-08-11T19:37:34.778569+00:00", "direction": "response", "tool": "web.search", "elapsed_ms": 0.242, "result_count": 10, "source_urls": ["https://www.ebay.com/sch/i.html?_nkw=Nerf+N-Strike+Elite+Strongarm+Blaster", "https://www.ebay.com/sch/i.html?_nkw=Nerf+N+Strike+Elite+Strongarm+Toy+Blaster+With+Rotating+Barrel+Slam", "https://www.ebay.com/sch/i.html?_nkw=2014+Nerf+N-strike+Elite+Strongarm+6+Dart+Slam+Fire+Kids+Toy+-+%2F", "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-+Strike+Elite+Strongarm+Blaster", "https://www.ebay.com/sch/i.html?_nkw=Hasbro+Strongarm+Nerf+N-Strike+Elite+Toy+Blaster", "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-strike+Elite+Strongarm+Blaster+With+12+Elite+Darts+-+Shoots+Up", "https://www.ebay.com/sch/i.html?_nkw=Nerf+N+Strike+Elite+Strongarm+5+Dart+Blaster+Darts+%2B6+Darts+Kids", "https://www.ebay.com/sch/i.html?_nkw=Nerf+N-strike+Elite+Strongarm+Slam-fire+Dart+Blaster+-+Teal+Color+-", "https://www.ebay.com/sch/i.html?_nkw=Nerf+Elite+Disruptor", "https://www.ebay.com/sch/i.html?_nkw=NERF+N-STRIKE+ELITE+STRONGARM+BLASTER+%2B+12+SOFT+FOAM+DARTS+%2B+1+MAGAZINE"]}

@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import httpx
 
@@ -32,6 +32,16 @@ ALLOWED_DOMAINS = (
     "newegg.com",
     "wayfair.com",
 )
+RETAILER_SEARCH_URLS = {
+    "amazon": ("https://www.amazon.com/s", "k"),
+    "amazon.com": ("https://www.amazon.com/s", "k"),
+    "ebay": ("https://www.ebay.com/sch/i.html", "_nkw"),
+    "ebay.com": ("https://www.ebay.com/sch/i.html", "_nkw"),
+    "target": ("https://www.target.com/s", "searchTerm"),
+    "target.com": ("https://www.target.com/s", "searchTerm"),
+    "walmart": ("https://www.walmart.com/search", "q"),
+    "walmart.com": ("https://www.walmart.com/search", "q"),
+}
 
 _CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _STATE_LOCK = threading.Lock()
@@ -63,12 +73,40 @@ def fixture_key(query: str) -> str:
 
 def _allowed_url(url: str) -> bool:
     try:
-        host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+        parsed = urlparse(url)
+        if parsed.scheme.lower() not in {"http", "https"}:
+            return False
+        host = (parsed.hostname or "").lower().removeprefix("www.")
     except ValueError:
         return False
     return any(
         host == domain or host.endswith(f".{domain}") for domain in ALLOWED_DOMAINS
     )
+
+
+def _google_shopping_url(url: str) -> bool:
+    """Return whether Serper supplied a Google Shopping results URL."""
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower().removeprefix("www.")
+    except ValueError:
+        return False
+    return (
+        parsed.scheme.lower() in {"http", "https"}
+        and (host == "google.com" or host.endswith(".google.com"))
+        and parsed.path.rstrip("/") == "/search"
+    )
+
+
+def _retailer_search_url(source: str, title: str) -> str | None:
+    """Build an honest retailer search fallback for known Serper sources."""
+    retailer = source.split(" - ", 1)[0].strip().casefold()
+    config = RETAILER_SEARCH_URLS.get(retailer)
+    if config is None or not title:
+        return None
+    base_url, query_parameter = config
+    candidate = f"{base_url}?{urlencode({query_parameter: title})}"
+    return candidate if _allowed_url(candidate) else None
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -85,21 +123,34 @@ def normalize_response(raw_response: dict[str, Any], num: int) -> list[dict[str,
     """Normalize live and recorded Serper shopping responses identically."""
     results: list[dict[str, Any]] = []
     dropped = 0
+    search_fallbacks = 0
     for entry in raw_response.get("shopping", []):
         if not isinstance(entry, dict):
             continue
-        url = str(entry.get("link") or "").strip()
-        if not _allowed_url(url):
-            dropped += 1
-            continue
+        title = str(entry.get("title") or "").strip()
         source = str(entry.get("source") or "").strip()
+        url = str(entry.get("link") or "").strip()
+        used_search_fallback = False
+        if not _allowed_url(url):
+            fallback_url = (
+                _retailer_search_url(source, title)
+                if _google_shopping_url(url)
+                else None
+            )
+            if fallback_url is None:
+                dropped += 1
+                continue
+            url = fallback_url
+            used_search_fallback = True
+            search_fallbacks += 1
         delivery = str(entry.get("delivery") or "").strip()
-        snippet = " · ".join(part for part in (source, delivery) if part)
+        fallback_note = "Retailer search fallback" if used_search_fallback else ""
+        snippet = " · ".join(part for part in (source, delivery, fallback_note) if part)
         # `rating` is additive to the assignment's five-key web schema and is
         # the only rating source because the private catalog has none.
         results.append(
             {
-                "title": str(entry.get("title") or "").strip(),
+                "title": title,
                 "url": url,
                 "snippet": snippet,
                 "price": _float_or_none(entry.get("price")),
@@ -111,6 +162,8 @@ def normalize_response(raw_response: dict[str, Any], num: int) -> list[dict[str,
             break
     if dropped:
         _log_event("allowlist_drop", count=dropped)
+    if search_fallbacks:
+        _log_event("retailer_search_fallback", count=search_fallbacks)
     return results
 
 
