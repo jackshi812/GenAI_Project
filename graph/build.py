@@ -56,14 +56,15 @@ def run_graph(transcript: str) -> AssistantResult:
 
 
 def _to_result(state: dict) -> AssistantResult:
+    # Exactly the six contract fields (strict model, extra="forbid"); the
+    # extracted intent stays graph-internal and reaches the UI via step detail.
     return AssistantResult(
         transcript=state.get("transcript", ""),
-        intent=state.get("intent"),
         plan=state.get("plan"),
         answer_text=state.get("answer_text", ""),
         products=state.get("products", []),
-        citations=state.get("citations", []),
         steps=state.get("steps", []),
+        citations=state.get("citations", []),
     )
 
 

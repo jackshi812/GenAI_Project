@@ -32,18 +32,15 @@ python -m graph.smoke                # all three canonical queries
 python -m graph.smoke | tee graph/sample_output.txt   # Aug 13 checkpoint
 ```
 
-## Blocked on Jack (as of Aug 11)
+## Contract alignment (updated Aug 11, after Jack's push)
 
-`contracts.py`, `fixtures.json`, `requirements.txt`, `.env.example` are not on
-`main` yet. Everything here imports `contracts.py` per D-10, so runtime
-verification beyond `test_deterministic` waits for those files. Two shapes to
-confirm with Jack when they land (rename kwargs here if his fields differ):
+Verified against Jack's `contracts.py` (strict pydantic, `extra="forbid"`):
+`MatchInfo.similarity`, `Conflict.note` (human-readable, no `direction`
+field), `StepEvent.started_at` (recorded by `graph.state.timer`), and
+`AssistantResult` without `intent` (intent stays graph-internal; it reaches
+the step log via the router step's detail).
 
-- `Conflict(field, private_value, live_value, direction)`,
-  `MatchInfo(score, verdict, reason)`, `Citation(kind, label, url)`,
-  `StepEvent(node, tool, status, duration_ms, detail)`,
-  `AssistantResult(transcript, intent, plan, answer_text, products, citations, steps)`.
-- `fixtures.json` structure assumed by `graph/tools_stub.py`:
-  `{"rag_results": {<eight-word key>: [RagResult...]}, "web_results": {<eight-word key>: [WebResult...]}}`
-  (rag_results may also be a flat list applied to every query). Keys follow
-  the shared D-08 rule: first eight whitespace-delimited words, lowercased.
+One divergence to raise with Jack at the Aug 13 checkpoint: `fixtures.json`
+keys `web_results` by **full catalog title**, while D-08 specifies the
+eight-word key. `graph/tools_stub.py` indexes both spellings of each key
+(exact match after normalization, never fuzzy), so either convention works.

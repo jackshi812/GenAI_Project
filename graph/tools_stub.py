@@ -37,7 +37,12 @@ class FixtureTools:
         with open(self._path, encoding="utf-8") as f:
             data = json.load(f)
         self._rag = data.get("rag_results", {})
-        self._web = data.get("web_results", {})
+        # Jack keys web_results by full catalog title; the graph queries with
+        # the D-08 eight-word key. Index both under the normalized eight-word
+        # key so lookup stays exact-match either way (never fuzzy).
+        raw_web = data.get("web_results", {})
+        self._web = {eight_word_key(k): v for k, v in raw_web.items()}
+        self._web.update({k: v for k, v in raw_web.items()})
 
     async def __aenter__(self):
         return self

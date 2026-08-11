@@ -134,9 +134,7 @@ def _evidence_block(products: list[ComparisonProduct]) -> str:
         else:
             lines.append("  LIVE: no confirmed match (listing may no longer exist)")
         for c in p.conflicts:
-            lines.append(
-                f"  CONFLICT: price {c.private_value} (2020 catalog) vs {c.live_value} (live), {c.direction}"
-            )
+            lines.append(f"  CONFLICT: {c.note}")
         if p.match is not None:
             lines.append(f"  MATCH: {p.match.verdict} ({p.match.reason})")
     return "\n".join(lines)

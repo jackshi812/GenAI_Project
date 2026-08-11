@@ -56,6 +56,7 @@ def make_retriever_node(tools):
                     "completed",
                     t.ms,
                     f"query={query!r} filters={filters} -> {len(rag_results)} results",
+                    t.started_at,
                 )
             )
         except Exception as exc:  # degrade, never crash the graph
@@ -80,6 +81,7 @@ def make_retriever_node(tools):
                             "completed",
                             t.ms,
                             f"query={live_query!r} -> {len(hits)} results",
+                            t.started_at,
                         )
                     )
                 except Exception as exc:
@@ -111,6 +113,7 @@ def make_retriever_node(tools):
                 t.ms,
                 f"reconciliation: {len(products)} products, {n_matched} live-matched, "
                 f"{n_conflicts} price conflicts",
+                t.started_at,
             )
         )
 
@@ -157,7 +160,7 @@ async def _reconcile_one(private: RagResult, candidates: list[WebResult]) -> Com
             private=private,
             live=None,
             conflicts=[],
-            match=MatchInfo(score=round(best_score, 3), verdict="different", reason=reason),
+            match=MatchInfo(similarity=round(best_score, 3), verdict="different", reason=reason),
         )
 
     if band == "accept":
@@ -182,7 +185,7 @@ async def _reconcile_one(private: RagResult, candidates: list[WebResult]) -> Com
         live=None,
         conflicts=[],
         match=MatchInfo(
-            score=round(best_score, 3),
+            similarity=round(best_score, 3),
             verdict=decision.verdict if decision.verdict in ("different", "unsure") else "unsure",
             reason=decision.reason,
         ),
@@ -203,12 +206,23 @@ def _confirmed(
     if private_price is not None and live_price is not None:
         c = price_conflict(private_price, live_price)
         if c:
-            conflicts.append(Conflict(**c))
+            moved = "rose" if c["direction"] == "up" else "dropped"
+            conflicts.append(
+                Conflict(
+                    field="price",
+                    private_value=c["private_value"],
+                    live_value=c["live_value"],
+                    note=(
+                        f"price {moved} from ${c['private_value']:.2f} (2020 catalog) "
+                        f"to ${c['live_value']:.2f} (live)"
+                    ),
+                )
+            )
     return ComparisonProduct(
         private=private,
         live=live,
         conflicts=conflicts,
-        match=MatchInfo(score=round(score, 3), verdict="same", reason=reason),
+        match=MatchInfo(similarity=round(score, 3), verdict="same", reason=reason),
     )
 
 

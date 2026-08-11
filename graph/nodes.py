@@ -35,7 +35,7 @@ async def router_node(state: dict) -> dict:
         "intent": out.task,
         "constraints": constraints,
         "safety_flags": out.safety_flags,
-        "steps": [make_step("router", None, "completed", t.ms, detail)],
+        "steps": [make_step("router", None, "completed", t.ms, detail, t.started_at)],
     }
 
 
@@ -105,5 +105,5 @@ async def planner_node(state: dict) -> dict:
         "use_live": use_live,
         "filters": filters,
         "semantic_query": semantic_query,
-        "steps": [make_step("planner", None, "completed", t.ms, plan_sentence)],
+        "steps": [make_step("planner", None, "completed", t.ms, plan_sentence, t.started_at)],
     }

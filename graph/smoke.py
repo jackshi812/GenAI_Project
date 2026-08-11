@@ -38,8 +38,7 @@ def main() -> None:
         print("=" * 78)
         result = run_graph(transcript)
 
-        print(f"\nintent: {result.intent}")
-        print(f"plan:   {result.plan}")
+        print(f"\nplan: {result.plan}")
 
         print("\nsteps:")
         for s in result.steps:
@@ -60,12 +59,12 @@ def main() -> None:
             else:
                 print("     LIVE: none")
             for c in p.conflicts:
-                print(
-                    f"     CONFLICT {c.field}: {c.private_value} (2020) vs "
-                    f"{c.live_value} (live) [{c.direction}]"
-                )
+                print(f"     CONFLICT {c.field}: {c.note}")
             if p.match is not None:
-                print(f"     MATCH: {p.match.verdict} score={p.match.score} ({p.match.reason})")
+                print(
+                    f"     MATCH: {p.match.verdict} similarity={p.match.similarity} "
+                    f"({p.match.reason})"
+                )
 
         wc = len(result.answer_text.split())
         print(f"\nanswer ({wc} words): {result.answer_text}")

@@ -7,6 +7,7 @@ at the repository root — never redefined here (D-10). `RouterOutput` and
 
 import operator
 import time
+from datetime import datetime, timezone
 from typing import Annotated, Any, Optional, TypedDict
 
 from pydantic import BaseModel, Field
@@ -56,27 +57,38 @@ class PlannerOutput(BaseModel):
     rationale: str = ""
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def make_step(
     node: str,
     tool: Optional[str],
     status: str,
-    duration_ms: int,
+    duration_ms: Optional[int],
     detail: str,
+    started_at: Optional[str] = None,
 ) -> StepEvent:
-    """Construct a StepEvent. Never appends to or mutates state["steps"]."""
+    """Construct a StepEvent. Never appends to or mutates state["steps"].
+
+    Pass timer.started_at when the step was timed; otherwise the construction
+    moment is used (instant steps like skips)."""
     return StepEvent(
         node=node,
         tool=tool,
         status=status,
-        duration_ms=duration_ms,
+        duration_ms=int(duration_ms) if duration_ms is not None else None,
         detail=detail,
+        started_at=started_at or _now_iso(),
     )
 
 
 class timer:
-    """Context manager measuring wall time in ms for step events."""
+    """Context manager measuring wall time in ms for step events, recording
+    the true start timestamp for StepEvent.started_at."""
 
     def __enter__(self):
+        self.started_at = _now_iso()
         self._t0 = time.perf_counter()
         return self
 
