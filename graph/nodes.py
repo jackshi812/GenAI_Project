@@ -75,17 +75,18 @@ async def planner_node(state: dict) -> dict:
 
     use_live = keyword_live or out.use_live
 
-    # Filters: only catalog-supported keys; budgets come deterministically
-    # from the Router's numeric constraints (never embedding text).
-    filters = dict(out.filters or {})
-    if constraints.get("budget_max") is not None:
-        filters["price_max"] = constraints["budget_max"]
-    if constraints.get("budget_min") is not None:
-        filters["price_min"] = constraints["budget_min"]
-    if constraints.get("category") and "category" not in filters:
-        filters["category"] = constraints["category"]
-    if constraints.get("brand") and "brand" not in filters:
-        filters["brand"] = constraints["brand"]
+    # Filters are built deterministically from the Router's extracted
+    # constraints — never from planner-LLM improvisation. An invented
+    # category (e.g. "500-piece jigsaw puzzle" instead of the real catalog
+    # category "Toys & Games") silently filters out every correct result.
+    # The LLM contributes only k, the result count.
+    filters = {
+        "price_max": constraints.get("budget_max"),
+        "price_min": constraints.get("budget_min"),
+        "category": constraints.get("category"),
+        "brand": constraints.get("brand"),
+        "k": out.filters.k or 5,
+    }
     filters = {k: v for k, v in filters.items() if v is not None}
 
     # Semantic query built deterministically: task phrase + stated material.

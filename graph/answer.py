@@ -12,7 +12,7 @@ from contracts import Citation, ComparisonProduct
 from graph.llm import get_llm, load_prompt
 from graph.nodes import SAFETY_RATIONALE
 from graph.state import make_step, timer
-from graph.retriever import SNIPPET_CAP
+from graph.retriever import SNIPPET_CAP, _numeric_price
 
 MAX_WORDS = 30  # hard cap: ~12s of speech under the 15s TTS ceiling
 
@@ -62,25 +62,50 @@ async def answerer_node(state: dict) -> dict:
         draft = await _answer_call(state, evidence, feedback=None)
         critic = await _critic_call(draft.answer_text, evidence)
         retried = False
+        degraded = False
+        flagged: list[str] = []
         if not critic.grounded:
             retried = True
+            flagged += critic.ungrounded_claims
             draft = await _answer_call(state, evidence, feedback=critic.ungrounded_claims)
             critic = await _critic_call(draft.answer_text, evidence)
         if not critic.grounded:
-            # Degrade: minimal grounded statement, private evidence only.
-            top = products[0].private
-            draft = AnswerOutput(
-                answer_text=f"Top pick: {_short_title(top.title)}, catalog document {top.doc_id}.",
-                cited_doc_ids=[top.doc_id],
-                cited_urls=[],
-            )
+            # Degrade: answer built verbatim from evidence values — grounded
+            # by construction, and it still voices a price conflict.
+            degraded = True
+            flagged += critic.ungrounded_claims
+            draft = _degraded_answer(products)
 
     citations = _build_citations(draft, products)
     detail = f"answer={len(draft.answer_text.split())} words, {len(citations)} citations"
     if retried:
         detail += "; critic rejected first draft, retried once"
-    steps.append(make_step("answerer", None, "completed", t.ms, detail))
+    if degraded:
+        detail += "; second draft rejected, degraded to evidence-only answer"
+    if flagged:
+        detail += " (flagged: " + "; ".join(flagged)[:300] + ")"
+    steps.append(make_step("answerer", None, "completed", t.ms, detail, t.started_at))
     return {"answer_text": draft.answer_text, "citations": citations, "steps": steps}
+
+
+def _degraded_answer(products: list[ComparisonProduct]) -> AnswerOutput:
+    """Fallback after two critic rejections. Every number is copied directly
+    from the evidence, so it cannot be ungrounded — and a detected price
+    conflict is still spoken aloud."""
+    top = products[0]
+    r = top.private
+    parts = [f"Top pick: {_short_title(r.title)}."]
+    if r.price_low is not None:
+        parts.append(f"Catalog price ${r.price_low:.2f} in 2020.")
+    live_price = _numeric_price(top.live) if top.live is not None else None
+    if live_price is not None:
+        parts.append(f"Live price ${live_price:.2f} now.")
+    parts.append("Details on screen.")
+    return AnswerOutput(
+        answer_text=" ".join(parts),
+        cited_doc_ids=[r.doc_id],
+        cited_urls=[top.live.url] if top.live is not None else [],
+    )
 
 
 async def _answer_call(state, evidence: str, feedback: Optional[list[str]]) -> AnswerOutput:
@@ -164,5 +189,11 @@ def _domain(url: str) -> str:
 
 
 def _short_title(title: str) -> str:
-    words = title.split()
-    return " ".join(words[:8])
+    words = title.split()[:8]
+    # Drop trailing filler so the spoken phrase doesn't end mid-thought
+    # ("...Toy Blaster with,").
+    while words and words[-1].lower().strip(",.;:-()") in {
+        "with", "and", "for", "of", "the", "a", "an", "by", "in",
+    }:
+        words.pop()
+    return " ".join(words).rstrip(",.;:-")

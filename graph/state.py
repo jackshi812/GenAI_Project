@@ -8,7 +8,7 @@ at the repository root — never redefined here (D-10). `RouterOutput` and
 import operator
 import time
 from datetime import datetime, timezone
-from typing import Annotated, Any, Optional, TypedDict
+from typing import Annotated, Optional, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -48,12 +48,25 @@ class RouterOutput(BaseModel):
     safety_flags: list[str] = Field(default_factory=list)
 
 
+class PlannerFilters(BaseModel):
+    """Catalog-supported rag.search filters. Typed rather than a free dict:
+    OpenAI's strict structured-output mode rejects schemas with free-form
+    objects (additionalProperties), and these five keys are the only ones the
+    tool seam forwards anyway."""
+
+    price_max: Optional[float] = None
+    price_min: Optional[float] = None
+    category: Optional[str] = None
+    brand: Optional[str] = None
+    k: Optional[int] = None
+
+
 class PlannerOutput(BaseModel):
     """Structured output of the Planner LLM call. Graph-internal."""
 
     use_private: bool = True
     use_live: bool = False
-    filters: dict[str, Any] = Field(default_factory=dict)
+    filters: PlannerFilters = Field(default_factory=PlannerFilters)
     rationale: str = ""
 
 

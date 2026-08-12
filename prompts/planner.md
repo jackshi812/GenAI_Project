@@ -29,8 +29,12 @@ with no currency language, choose private-only and say why in the rationale.
 
 `filters` may contain only keys supported by catalog metadata: `price_max`,
 `price_min`, `category`, `brand`, `k`. Budgets are numeric filters, never
-search text — embeddings cannot do arithmetic. Omit any key the user did not
-state (no nulls, no guesses). `k` defaults to 5 if you set it at all.
+search text — embeddings cannot do arithmetic. Leave every filter null that
+the user did not state: an invented value (a made-up category, a guessed
+budget) silently excludes correct results. `category` means a real catalog
+category such as "Toys & Games", never a product description. In code, the
+final filters are taken from the Router's extracted constraints; your `k`
+(default 5) controls result count.
 
 ## Rationale
 
