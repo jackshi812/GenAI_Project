@@ -33,7 +33,14 @@ class CriticOutput(BaseModel):
     """Structured output of the Critic call. Graph-internal."""
 
     grounded: bool
+    citations_complete: bool = Field(
+        description="Whether every source used by the answer has a matching citation"
+    )
     ungrounded_claims: list[str] = Field(default_factory=list)
+    missing_citations: list[str] = Field(
+        default_factory=list,
+        description="Exact missing private doc_ids or live URLs",
+    )
 
 
 async def answerer_node(state: dict) -> dict:
@@ -60,20 +67,23 @@ async def answerer_node(state: dict) -> dict:
 
     with timer() as t:
         draft = await _answer_call(state, evidence, feedback=None)
-        critic = await _critic_call(draft.answer_text, evidence)
+        critic = await _critic_call(draft, evidence)
         retried = False
         degraded = False
         flagged: list[str] = []
-        if not critic.grounded:
+        issues = _critic_issues(critic)
+        if issues:
             retried = True
-            flagged += critic.ungrounded_claims
-            draft = await _answer_call(state, evidence, feedback=critic.ungrounded_claims)
-            critic = await _critic_call(draft.answer_text, evidence)
-        if not critic.grounded:
+            flagged += issues
+            draft = await _answer_call(state, evidence, feedback=issues)
+            critic = await _critic_call(draft, evidence)
+            issues = _critic_issues(critic)
+        if issues:
             # Degrade: answer built verbatim from evidence values — grounded
-            # by construction, and it still voices a price conflict.
+            # by construction, with its required private/live citations filled
+            # deterministically rather than entrusted to another model call.
             degraded = True
-            flagged += critic.ungrounded_claims
+            flagged += issues
             draft = _degraded_answer(products)
 
     citations = _build_citations(draft, products)
@@ -86,6 +96,17 @@ async def answerer_node(state: dict) -> dict:
         detail += " (flagged: " + "; ".join(flagged)[:300] + ")"
     steps.append(make_step("answerer", None, "completed", t.ms, detail, t.started_at))
     return {"answer_text": draft.answer_text, "citations": citations, "steps": steps}
+
+
+def _critic_issues(critic: CriticOutput) -> list[str]:
+    """Turn grounding and citation failures into one bounded retry payload."""
+    issues = list(critic.ungrounded_claims)
+    if not critic.citations_complete:
+        if critic.missing_citations:
+            issues.extend(f"Missing citation: {source}" for source in critic.missing_citations)
+        else:
+            issues.append("The answer uses evidence without citing every source used.")
+    return issues
 
 
 def _degraded_answer(products: list[ComparisonProduct]) -> AnswerOutput:
@@ -118,21 +139,26 @@ async def _answer_call(state, evidence: str, feedback: Optional[list[str]]) -> A
     )
     if feedback:
         human += (
-            "\n\nYour previous draft contained claims not traceable to the evidence: "
+            "\n\nThe Critic found grounding or citation problems in your previous draft: "
             + "; ".join(feedback)
-            + "\nRewrite using only traceable claims."
+            + "\nRewrite using only traceable claims and include every private doc_id "
+            "and live URL whose evidence the answer uses."
         )
     return await llm.ainvoke([("system", load_prompt("answerer")), ("human", human)])
 
 
-async def _critic_call(answer_text: str, evidence: str) -> CriticOutput:
+async def _critic_call(draft: AnswerOutput, evidence: str) -> CriticOutput:
     llm = get_llm().with_structured_output(CriticOutput)
     return await llm.ainvoke(
         [
             ("system", load_prompt("critic")),
             (
                 "human",
-                f"Answer to check:\n{answer_text}\n\nEvidence:\n<evidence>\n{evidence}\n</evidence>",
+                f"Answer to check:\n{draft.answer_text}\n\n"
+                f"Citations supplied by the Answerer:\n"
+                f"private doc_ids={draft.cited_doc_ids}\n"
+                f"live URLs={draft.cited_urls}\n\n"
+                f"Evidence:\n<evidence>\n{evidence}\n</evidence>",
             ),
         ]
     )

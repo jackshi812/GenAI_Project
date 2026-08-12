@@ -22,7 +22,9 @@ class MatchDecision(BaseModel):
     """Structured output of the match-confirm LLM call. Graph-internal."""
 
     candidate_index: Optional[int] = Field(
-        default=None, description="Index of the matching candidate, or null if none"
+        default=None,
+        ge=0,
+        description="Zero-based index of the matching candidate, or null if none",
     )
     verdict: str = Field(description="'same', 'different', or 'unsure'")
     reason: str = Field(description="One sentence explaining the verdict")
@@ -144,18 +146,31 @@ async def _reconcile_one(private: RagResult, candidates: list[WebResult]) -> Com
         key=lambda x: x[0],
         reverse=True,
     )[:3]
-    best_score, best = scored[0]
+    # Stage B: apply deterministic guards to every shortlisted candidate. A
+    # conflicting top hit must not hide a valid lower-ranked hit, and candidates
+    # with known pack/count/model/size/color conflicts must never reach the LLM.
+    evaluated = [
+        (score, candidate, guard, match_band(score, guard))
+        for score, candidate in scored
+        for guard in [variant_guard(private.title, candidate.title)]
+    ]
+    eligible = [item for item in evaluated if item[3] != "reject"]
 
-    # Stage B: deterministic variant guards on the best candidate.
-    guard = variant_guard(private.title, best.title)
-    band = match_band(best_score, guard)
-
-    if band == "reject":
+    if not eligible:
+        best_score, _, best_guard, _ = evaluated[0]
         reason = (
-            f"auto-rejected: variant conflict ({guard})"
-            if guard == "conflict"
-            else f"auto-rejected: best similarity {best_score:.2f} below 0.35"
+            "auto-rejected: all shortlisted candidates have deterministic "
+            "variant conflicts"
+            if all(guard == "conflict" for _, _, guard, _ in evaluated)
+            else f"auto-rejected: no eligible candidate; best similarity {best_score:.2f}"
         )
+        if best_guard == "conflict" and not all(
+            guard == "conflict" for _, _, guard, _ in evaluated
+        ):
+            reason = (
+                "auto-rejected: best candidate has a deterministic variant "
+                "conflict and remaining candidates are below similarity threshold"
+            )
         return ComparisonProduct(
             private=private,
             live=None,
@@ -163,7 +178,9 @@ async def _reconcile_one(private: RagResult, candidates: list[WebResult]) -> Com
             match=MatchInfo(similarity=round(best_score, 3), verdict="different", reason=reason),
         )
 
-    if band == "accept":
+    best_score, best, _, best_band = eligible[0]
+
+    if best_band == "accept":
         return _confirmed(
             private,
             best,
@@ -171,14 +188,37 @@ async def _reconcile_one(private: RagResult, candidates: list[WebResult]) -> Com
             f"auto-accepted: similarity {best_score:.2f} above 0.60 with matching variant tokens",
         )
 
-    # Stage C: one LLM confirmation call for the ambiguous band.
-    decision = await _llm_confirm(private, [c for _, c in scored])
+    # Stage C: one LLM confirmation call for the ambiguous candidates only.
+    llm_candidates = [candidate for _, candidate, _, _ in eligible]
+    decision = await _llm_confirm(private, llm_candidates)
     if decision.verdict == "same" and decision.candidate_index is not None:
-        try:
-            chosen = [c for _, c in scored][decision.candidate_index]
-        except IndexError:
-            chosen = best
-        score = title_similarity(private.title, chosen.title)
+        if decision.candidate_index >= len(eligible):
+            return ComparisonProduct(
+                private=private,
+                live=None,
+                conflicts=[],
+                match=MatchInfo(
+                    similarity=round(best_score, 3),
+                    verdict="unsure",
+                    reason="LLM returned an invalid candidate index; no match accepted",
+                ),
+            )
+
+        score, chosen, _, _ = eligible[decision.candidate_index]
+        # Defense in depth: deterministic variant conflicts cannot be overridden
+        # by an LLM decision, even if candidate data changes during confirmation.
+        chosen_guard = variant_guard(private.title, chosen.title)
+        if chosen_guard == "conflict":
+            return ComparisonProduct(
+                private=private,
+                live=None,
+                conflicts=[],
+                match=MatchInfo(
+                    similarity=round(score, 3),
+                    verdict="different",
+                    reason="LLM selection rejected by deterministic variant guard",
+                ),
+            )
         return _confirmed(private, chosen, score, f"LLM-confirmed: {decision.reason}")
     return ComparisonProduct(
         private=private,

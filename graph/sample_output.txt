@@ -2,47 +2,55 @@
 CANONICAL QUERY 1: Find me a 500 piece jigsaw puzzle under twenty dollars.
 ==============================================================================
 
-plan: Private catalog only: factual budget search for 500-piece jigsaw puzzles with a $20 price cap in the 'Toys & Games' category, returning up to 5 results.
+plan: Private catalog + live web: use the private catalog for grounded 500-piece jigsaw puzzle matches and also query live results to verify current prices under $20; search in category 'Toys & Games' with a $20 max, returning top 5.
 
 steps:
-  [completed] router     tool=-            2881ms  task='500 piece jigsaw puzzle' budget_max=20.0
-  [completed] planner    tool=-            5952ms  Private catalog only: factual budget search for 500-piece jigsaw puzzles with a $20 price cap in the 'Toys & Games' category, returning up to 5 results.
+  [completed] router     tool=-            3847ms  task='500 piece jigsaw puzzle' budget_max=20.0
+  [completed] planner    tool=-            7310ms  Private catalog + live web: use the private catalog for grounded 500-piece jigsaw puzzle matches and also query live results to verify current prices under $20; search in category 'Toys & Games' with a $20 max, returning top 5.
   [completed] retriever  tool=rag.search   0ms  query='500 piece jigsaw puzzle' filters={'price_max': 20.0, 'k': 5} -> 3 results
-  [completed] retriever  tool=-            0ms  reconciliation: 3 products, 0 live-matched, 0 price conflicts
-  [completed] answerer   tool=-            26617ms  answer=21 words, 1 citations; critic rejected first draft, retried once (flagged: licensed Pokémon design)
+  [completed] retriever  tool=web.search   0ms  query='buffalo games - pokémon bubble - 500 piece' -> 1 results
+  [completed] retriever  tool=web.search   0ms  query='springbok puzzles - americana - 500 piece jigsaw' -> 2 results
+  [completed] retriever  tool=web.search   0ms  query='springbok puzzles - feathered friends jigsaw puzzle -' -> 1 results
+  [completed] retriever  tool=-            7117ms  reconciliation: 3 products, 2 live-matched, 1 price conflicts
+  [completed] answerer   tool=-            13485ms  answer=20 words, 2 citations
 
 products:
   PRIVATE AMZ-C8BC973C: 'Buffalo Games - Pokémon Bubble - 500 Piece Jigsaw Puzzle' price=10.99
-     LIVE: none
+     LIVE: 'Buffalo Games Pokemon Bubble 500 Piece Jigsaw Puzzle' price=10.0 rating=5.0
+     MATCH: same similarity=0.981 (auto-accepted: similarity 0.98 above 0.60 with matching variant tokens)
   PRIVATE AMZ-1AF647A8: 'Springbok Puzzles - Americana - 500 Piece Jigsaw Puzzle - La' price=13.69
-     LIVE: none
+     LIVE: 'Springbok "americana" 500 Piece Puzzle Made In Usa' price=9.99 rating=None
+     CONFLICT price: price dropped from $13.69 (2020 catalog) to $9.99 (live)
+     MATCH: same similarity=0.542 (LLM-confirmed: Candidate 0 explicitly matches brand (Springbok), model name (Americana), piece count (500) and 'Made in USA' as in the catalog, indicating the same product.)
   PRIVATE AMZ-6048F7ED: 'Springbok Puzzles - Feathered Friends Jigsaw Puzzle - 500 Pi' price=12.95
      LIVE: none
+     MATCH: unsure similarity=0.417 (Title matches but the listing provides no brand, piece count, dimensions, or model info to confirm it is the same 500-piece Springbok 18"x23.5" puzzle.)
 
-answer (21 words): Top pick: Buffalo Games — Pokémon Bubble, 500-piece puzzle, catalog price $10.99; it's a 500-piece, budget-friendly option — details on screen.
+answer (20 words): Top pick: Springbok “Americana” 500-piece puzzle — Made in USA, catalog price $13.69 but now about $9.99; details on screen.
 citations:
-  [private] AMZ-C8BC973C
+  [private] AMZ-1AF647A8
+  [live] www.ebay.com https://www.ebay.com/sch/i.html?_nkw=Springbok+%22americana%22+500+Piece+Puzzle+Made+In+Usa
 
 ==============================================================================
 CANONICAL QUERY 2: What is the current price and availability of the LEGO Classic Creative Suitcase 10713?
 ==============================================================================
 
-plan: Consult both private catalog (for product identity/details) and live web (required for current price and availability) for the LEGO Classic Creative Suitcase 10713. Live search forced by a currency keyword in the request.
+plan: Consult both private catalog and live web: use the private catalog for product identification/specs and use live sources to get the current price and availability the user requested; filter by brand 'LEGO' and return top 5 results. Live search forced by a currency keyword in the request.
 
 steps:
-  [completed] router     tool=-            3100ms  task='LEGO Classic Creative Suitcase 10713' brand=LEGO
-  [completed] planner    tool=-            4447ms  Consult both private catalog (for product identity/details) and live web (required for current price and availability) for the LEGO Classic Creative Suitcase 10713. Live search forced by a currency keyword in the request.
+  [completed] router     tool=-            2782ms  task='LEGO Classic Creative Suitcase 10713' brand=LEGO
+  [completed] planner    tool=-            3890ms  Consult both private catalog and live web: use the private catalog for product identification/specs and use live sources to get the current price and availability the user requested; filter by brand 'LEGO' and return top 5 results. Live search forced by a currency keyword in the request.
   [completed] retriever  tool=rag.search   0ms  query='LEGO Classic Creative Suitcase 10713' filters={'brand': 'LEGO', 'k': 5} -> 1 results
   [completed] retriever  tool=web.search   0ms  query='lego classic creative suitcase 10713 building kit (213' -> 1 results
-  [completed] retriever  tool=-            3235ms  reconciliation: 1 products, 0 live-matched, 0 price conflicts
-  [completed] answerer   tool=-            18369ms  answer=26 words, 1 citations
+  [completed] retriever  tool=-            2756ms  reconciliation: 1 products, 0 live-matched, 0 price conflicts
+  [completed] answerer   tool=-            11169ms  answer=24 words, 1 citations
 
 products:
   PRIVATE AMZ-7E063675: 'LEGO Classic Creative Suitcase 10713 Building Kit (213 Piece' price=19.78
      LIVE: none
-     MATCH: unsure similarity=0.667 (Title lacks set number (10713) and piece count (213) so the listing could be the same product but is ambiguous — insufficient variant information to confirm.)
+     MATCH: unsure similarity=0.667 (The listing title matches generically but lacks the set number (10713), piece count (213) or other variant details, so I cannot confirm it is the same product.)
 
-answer (26 words): Top pick: LEGO Classic Creative Suitcase 10713 — 213 pieces; catalog price $19.78 (2020). No confirmed current online price or availability found; details are on screen.
+answer (24 words): Top pick: LEGO Classic Creative Suitcase 10713 — 213 pieces; 2020 catalog price $19.78. Current price/availability couldn't be confirmed online; details are on screen.
 citations:
   [private] AMZ-7E063675
 
@@ -50,15 +58,15 @@ citations:
 CANONICAL QUERY 3: Compare the current price of the Nerf N Strike Elite Strongarm blaster with the catalog price.
 ==============================================================================
 
-plan: Use both private catalog and live web: retrieve Nerf catalog entries for the N-Strike Elite Strongarm (brand=Ne rf) and fetch current live prices to compare against the catalog price. Live search forced by a currency keyword in the request.
+plan: Use both private catalog and live web: retrieve the catalog price from the private catalog (filtered by brand 'Nerf') and check current live prices to compare, returning the top 5 matches. Live search forced by a currency keyword in the request.
 
 steps:
-  [completed] router     tool=-            6119ms  task='Nerf N-Strike Elite Strongarm blaster' brand=Nerf
-  [completed] planner    tool=-            4580ms  Use both private catalog and live web: retrieve Nerf catalog entries for the N-Strike Elite Strongarm (brand=Ne rf) and fetch current live prices to compare against the catalog price. Live search forced by a currency keyword in the request.
-  [completed] retriever  tool=rag.search   0ms  query='Nerf N-Strike Elite Strongarm blaster' filters={'brand': 'Nerf', 'k': 5} -> 1 results
+  [completed] router     tool=-            5249ms  task='Nerf N Strike Elite Strongarm blaster' brand=Nerf
+  [completed] planner    tool=-            4092ms  Use both private catalog and live web: retrieve the catalog price from the private catalog (filtered by brand 'Nerf') and check current live prices to compare, returning the top 5 matches. Live search forced by a currency keyword in the request.
+  [completed] retriever  tool=rag.search   0ms  query='Nerf N Strike Elite Strongarm blaster' filters={'brand': 'Nerf', 'k': 5} -> 1 results
   [completed] retriever  tool=web.search   0ms  query='nerf n strike elite strongarm toy blaster with' -> 3 results
-  [completed] retriever  tool=-            1ms  reconciliation: 1 products, 1 live-matched, 1 price conflicts
-  [completed] answerer   tool=-            12264ms  answer=19 words, 2 citations
+  [completed] retriever  tool=-            0ms  reconciliation: 1 products, 1 live-matched, 1 price conflicts
+  [completed] answerer   tool=-            9904ms  answer=25 words, 2 citations
 
 products:
   PRIVATE AMZ-7E4E86AE: 'Nerf N Strike Elite Strongarm Toy Blaster with Rotating Barr' price=13.99
@@ -66,7 +74,7 @@ products:
      CONFLICT price: price rose from $13.99 (2020 catalog) to $21.95 (live)
      MATCH: same similarity=0.68 (auto-accepted: similarity 0.68 above 0.60 with matching variant tokens)
 
-answer (19 words): Top pick: Nerf N‑Strike Elite Strongarm — catalog price $13.99 (2020); live listing shows $21.95, higher; details on screen.
+answer (25 words): Top pick: Nerf N-Strike Elite Strongarm — catalog price $13.99 (2020), live sells for $21.95, about eight dollars higher; live rating 3.5. Details on screen.
 citations:
   [private] AMZ-7E4E86AE
   [live] www.ebay.com https://www.ebay.com/sch/i.html?_nkw=Nerf+N+Strike+Elite+Strongarm+Toy+Blaster+Rotating+Barrel+Slam+Fire
