@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
 
 # Streamlit executes this file with app/ as the import root. Add the repository
 # root before importing shared project modules.
@@ -16,170 +14,16 @@ if str(REPO_ROOT) not in sys.path:
 
 import streamlit as st
 
-from contracts import (
-    AssistantResult,
-    Citation,
-    ComparisonProduct,
-    Conflict,
-    MatchInfo,
-    RagResult,
-    StepEvent,
-    WebResult,
-)
+from app.config import source_mode_label
+from contracts import AssistantResult, ComparisonProduct
+from graph.build import run_graph
 from voice.stt import transcribe
 from voice.tts import synthesize
 
-FIXTURE_PATH = REPO_ROOT / "fixtures.json"
 DEFAULT_TRANSCRIPT = (
     "Compare the current price of the Nerf N Strike Elite Strongarm blaster "
     "with the catalog price."
 )
-
-
-def _load_fixture_data() -> tuple[dict[str, RagResult], dict[str, list[WebResult]]]:
-    raw = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
-    private = {
-        item.doc_id: item
-        for item in (RagResult.model_validate(row) for row in raw["rag_results"])
-    }
-    live = {
-        query: [WebResult.model_validate(row) for row in rows]
-        for query, rows in raw["web_results"].items()
-    }
-    return private, live
-
-
-def load_result(transcript: str) -> AssistantResult:
-    """Assemble a validated fixture result; Phase 2 replaces this seam."""
-    private, live = _load_fixture_data()
-    lowered = transcript.casefold()
-    lego = private["AMZ-7E063675"]
-    nerf = private["AMZ-7E4E86AE"]
-    puzzles = [
-        private["AMZ-C8BC973C"],
-        private["AMZ-1AF647A8"],
-        private["AMZ-6048F7ED"],
-    ]
-
-    if "nerf" in lowered or "strongarm" in lowered:
-        nerf_live = live[nerf.title][0]
-        products = [
-            ComparisonProduct(
-                private=nerf,
-                live=nerf_live,
-                conflicts=[
-                    Conflict(
-                        field="price",
-                        private_value=nerf.price_low,
-                        live_value=nerf_live.price,
-                        note=(
-                            "Recorded Serper price differs from the 2020 catalog; "
-                            "the retailer URL is a search fallback."
-                        ),
-                    )
-                ],
-                match=MatchInfo(
-                    similarity=0.638095,
-                    verdict="same",
-                    reason=(
-                        "Auto-accepted above 0.60: the Nerf Strongarm model, rotating "
-                        "barrel, and slam-fire variant evidence are compatible."
-                    ),
-                ),
-            ),
-            ComparisonProduct(private=lego, live=None, conflicts=[], match=None),
-            ComparisonProduct(private=puzzles[0], live=None, conflicts=[], match=None),
-        ]
-        answer = (
-            "The Nerf Strongarm was $13.99 in the 2020 catalog. Recorded eBay "
-            "evidence shows $21.95 and a 3.5 rating, so the prices conflict."
-        )
-        plan = "Search the private catalog, add recorded live evidence, and reconcile price."
-    elif "lego" in lowered or "10713" in lowered:
-        lego_live = live[lego.title][0]
-        products = [
-            ComparisonProduct(
-                private=lego,
-                live=lego_live,
-                conflicts=[
-                    Conflict(
-                        field="price",
-                        private_value=lego.price_low,
-                        live_value=lego_live.price,
-                        note=(
-                            "Recorded Serper price differs from the 2020 catalog; "
-                            "confirm availability on the retailer search page."
-                        ),
-                    )
-                ],
-                match=MatchInfo(
-                    similarity=0.666667,
-                    verdict="same",
-                    reason=(
-                        "The live title is a shortened form of the Creative Suitcase "
-                        "query, so the model and piece count need retailer verification."
-                    ),
-                ),
-            ),
-            ComparisonProduct(private=nerf, live=None, conflicts=[], match=None),
-            ComparisonProduct(private=puzzles[0], live=None, conflicts=[], match=None),
-        ]
-        answer = (
-            "The LEGO suitcase was $19.78 in the 2020 catalog. Recorded eBay "
-            "evidence shows $12.95 and a 4.8 rating; verify current availability."
-        )
-        plan = "Find the catalog product, add recorded live evidence, and compare price."
-    else:
-        products = [
-            ComparisonProduct(private=item, live=None, conflicts=[], match=None)
-            for item in puzzles
-        ]
-        answer = (
-            "The Buffalo Games Pokémon puzzle is $10.99 in the 2020 catalog and "
-            "fits your $20 budget. The catalog has no rating data."
-        )
-        plan = "Use private semantic retrieval with a numeric $20 metadata filter."
-
-    citations = [
-        Citation(kind="private", label=product.private.doc_id, url=None)
-        for product in products
-    ]
-    citations.extend(
-        Citation(
-            kind="live",
-            label=(urlparse(product.live.url).hostname or "live source").removeprefix(
-                "www."
-            ),
-            url=product.live.url,
-        )
-        for product in products
-        if product.live is not None
-    )
-    return AssistantResult(
-        transcript=transcript,
-        plan=plan,
-        answer_text=answer,
-        products=products,
-        steps=[
-            StepEvent(
-                node="fixture.load",
-                tool=None,
-                started_at="2026-08-11T00:00:00Z",
-                duration_ms=1,
-                status="completed",
-                detail="Loaded recorded fixture evidence; no graph was run.",
-            ),
-            StepEvent(
-                node="fixture.validate",
-                tool=None,
-                started_at="2026-08-11T00:00:00Z",
-                duration_ms=1,
-                status="completed",
-                detail="Validated the screen data against the shared contract.",
-            ),
-        ],
-        citations=citations,
-    )
 
 
 def _money(value: float | str | None) -> str:
@@ -239,9 +83,9 @@ def _render_product(product: ComparisonProduct) -> None:
             st.markdown(conflict_line.replace("$", r"\$"))
 
 
-def _render_evidence(result: AssistantResult) -> None:
+def _render_evidence(result: AssistantResult, source_mode: str) -> None:
     st.subheader("Private catalog vs. live evidence")
-    st.caption("Fixture graph / recorded Serper data")
+    st.caption(source_mode)
     for product in result.products[:3]:
         _render_product(product)
 
@@ -300,6 +144,8 @@ if "audio_digest" not in st.session_state:
     st.session_state.audio_digest = None
 if "answer_audio" not in st.session_state:
     st.session_state.answer_audio = None
+if "assistant_result" not in st.session_state:
+    st.session_state.assistant_result = None
 
 left, right = st.columns([1, 1.4])
 new_transcript = False
@@ -323,7 +169,24 @@ with left:
             except Exception:
                 st.error("Speech-to-text failed. Please check the OpenAI setup and retry.")
 
-result = load_result(st.session_state.transcript)
+previous_result = st.session_state.assistant_result
+needs_result = (
+    previous_result is None
+    or previous_result.transcript != st.session_state.transcript
+)
+if needs_result:
+    try:
+        with st.spinner("Running the product discovery graph…"):
+            st.session_state.assistant_result = run_graph(st.session_state.transcript)
+    except Exception:
+        st.error("Product discovery failed. Please check the graph and tool configuration.")
+        new_transcript = False
+        if previous_result is None:
+            st.stop()
+        st.session_state.transcript = previous_result.transcript
+
+result: AssistantResult = st.session_state.assistant_result
+source_mode = source_mode_label()
 
 if new_transcript:
     try:
@@ -335,6 +198,7 @@ if new_transcript:
 with left:
     st.markdown("**Transcript**")
     st.write(result.transcript)
+    st.caption(f"Source mode: {source_mode}")
     st.markdown("**Answer**")
     st.markdown(result.answer_text.replace("$", r"\$"))
     if st.session_state.answer_audio:
@@ -346,4 +210,4 @@ with left:
         )
 
 with right:
-    _render_evidence(result)
+    _render_evidence(result, source_mode)
