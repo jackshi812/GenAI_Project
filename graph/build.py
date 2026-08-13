@@ -11,6 +11,7 @@ signature.
 """
 
 import asyncio
+import os
 
 from langgraph.graph import END, START, StateGraph
 
@@ -21,6 +22,8 @@ from graph.nodes import planner_node, router_node
 from graph.retriever import make_retriever_node
 from graph.state import GraphState
 from graph.tools_stub import FixtureTools
+
+TOOL_MODES = ("live", "fixture")
 
 
 def build_graph(tools):
@@ -39,11 +42,33 @@ def build_graph(tools):
     return g.compile()
 
 
+def _select_tools():
+    """Choose the tool client from TOOL_MODE (Phase 2, Task 1).
+
+    ``live`` (default) starts one MCP server session for the whole turn via
+    ``MCPTools``; ``fixture`` replays recorded data through ``FixtureTools``
+    and stays available as the explicit recorded-tool fallback.
+    """
+    mode = os.getenv("TOOL_MODE", "live").strip().lower()
+    if mode == "live":
+        from graph.tools_mcp import MCPTools  # imported lazily: needs mcp SDK
+
+        return MCPTools()
+    if mode == "fixture":
+        return FixtureTools()
+    raise ValueError(
+        f"Unsupported TOOL_MODE={mode!r}; supported values are "
+        f"{TOOL_MODES[0]!r} and {TOOL_MODES[1]!r}."
+    )
+
+
 async def _run(transcript: str, tools=None) -> AssistantResult:
     """One async runner for the whole turn. The single sync/async boundary is
-    run_graph; nothing else calls asyncio.run."""
+    run_graph; nothing else calls asyncio.run. One call means one tool-client
+    lifecycle — in live mode, one MCP server process and one session serving
+    both rag.search and every web.search call of the turn."""
     if tools is None:
-        tools = FixtureTools()
+        tools = _select_tools()
     async with tools:
         graph = build_graph(tools)
         final = await graph.ainvoke({"transcript": transcript, "steps": []})
@@ -51,7 +76,8 @@ async def _run(transcript: str, tools=None) -> AssistantResult:
 
 
 def run_graph(transcript: str) -> AssistantResult:
-    """UI-facing synchronous wrapper (Phase 1: fixture tools)."""
+    """UI-facing synchronous wrapper. Tool selection follows TOOL_MODE;
+    the signature is unchanged from Phase 1."""
     return asyncio.run(_run(transcript))
 
 

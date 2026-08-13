@@ -19,18 +19,32 @@ Supporting modules: `graph/llm.py` (env-swappable provider + prompt loader),
 `graph/state.py` (state schema, graph-internal models, `make_step`),
 `graph/matching.py` (pure deterministic matching helpers, unit-testable with
 no key), `graph/tools.py` (the async `ToolClient` seam + shared `_decode` +
-eight-word fixture key), `graph/tools_stub.py` (fixture implementation; stays
-as the recorded fallback after Phase 2 adds `graph/tools_mcp.py`).
+eight-word fixture key), `graph/tools_stub.py` (fixture implementation, kept
+as the explicit recorded fallback), `graph/tools_mcp.py` (Phase 2 live
+client: one `python -m mcp_server.server` subprocess and one initialized
+`ClientSession` per graph turn, shared by `rag.search` and every
+`web.search` call).
+
+Tool selection is env-driven and does not change `run_graph`'s signature:
+`TOOL_MODE=live` (default) uses `MCPTools`; `TOOL_MODE=fixture` replays
+recorded data. A failed tool call raises `RuntimeError` at the client
+boundary; the Retriever converts it into an empty result plus a truthful
+`status: error` step — private evidence is preserved and nothing is
+invented.
 
 ## Verify
 
 ```bash
-python -m graph.test_deterministic   # no key, no contracts.py needed
-python -m graph.llm                  # proves env swappability + key works
-python -m graph.build                # stub end-to-end, prints step log
-python -m graph.smoke                # all three canonical queries
-python -m graph.smoke | tee graph/sample_output.txt   # Aug 13 checkpoint
+python -m graph.test_deterministic            # pure logic, nothing installed
+python -m unittest discover -s graph -p 'test_*.py'   # all unit tests
+python -m graph.llm                           # env swappability + key check
+TOOL_MODE=fixture python -m graph.smoke       # recorded end-to-end
+TOOL_MODE=live python -m graph.smoke          # real MCP server end-to-end
 ```
+
+Live-mode `rag.search` requires Austin's Chroma index
+(`python -m catalog.build_index`); without it the step degrades to a truthful
+`error` and the turn still completes.
 
 ## Contract alignment (updated Aug 11, after Jack's push)
 
