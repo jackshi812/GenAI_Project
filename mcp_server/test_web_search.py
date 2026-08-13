@@ -45,6 +45,7 @@ class NormalizeResponseTests(unittest.TestCase):
         fixtures = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
         expected_hosts = {
             "lego classic creative suitcase 10713 building kit (213": {
+                "www.ebay.com",
                 "www.target.com",
                 "www.walmart.com",
             },
