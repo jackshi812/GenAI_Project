@@ -29,6 +29,19 @@ class TextToSpeechBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "30-word"):
             synthesize(answer)
 
+    def test_synthesize_accepts_a_low_latency_model_override(self) -> None:
+        response = MagicMock(content=b"mp3")
+        client = MagicMock()
+        client.audio.speech.create.return_value = response
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test"}, clear=True):
+            with patch("voice.tts.OpenAI", return_value=client):
+                synthesize("A short grounded answer.", model="tts-1")
+
+        self.assertEqual(
+            client.audio.speech.create.call_args.kwargs["model"], "tts-1"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

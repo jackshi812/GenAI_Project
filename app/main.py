@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import os
 import sys
 from pathlib import Path
 
@@ -22,6 +24,7 @@ load_dotenv(REPO_ROOT / ".env")
 from app.config import live_evidence_notice, product_live_notice, source_mode_label
 from contracts import AssistantResult, ComparisonProduct, StepEvent
 from graph.build import run_graph
+from graph.fast_reply import FastReply, build_fast_reply
 from voice.stt import transcribe
 from voice.tts import cap_for_speech, synthesize
 
@@ -166,12 +169,15 @@ if "audio_digest" not in st.session_state:
     st.session_state.audio_digest = None
 if "answer_audio" not in st.session_state:
     st.session_state.answer_audio = None
+if "answer_audio_text" not in st.session_state:
+    st.session_state.answer_audio_text = None
 if "assistant_result" not in st.session_state:
     st.session_state.assistant_result = None
+if "fast_reply" not in st.session_state:
+    st.session_state.fast_reply = None
 
 left, right = st.columns([1, 1.4])
 new_transcript = False
-pending_audio_digest = None
 with left:
     st.subheader("Ask by voice")
     recording = st.audio_input("Ask for a product")
@@ -184,13 +190,54 @@ with left:
                     transcript = transcribe(audio_bytes, filename=recording.name)
                 if transcript:
                     st.session_state.answer_audio = None
+                    st.session_state.answer_audio_text = None
+                    st.session_state.fast_reply = None
                     st.session_state.transcript = transcript
+                    # Mark the recording as consumed as soon as ASR succeeds;
+                    # a later graph or TTS error must not retranscribe it.
+                    st.session_state.audio_digest = digest
                     new_transcript = True
-                    pending_audio_digest = digest
                 else:
                     st.warning("No speech was detected. Please record again.")
             except Exception:
                 st.error("Speech-to-text failed. Please check the OpenAI setup and retry.")
+
+    if new_transcript:
+        try:
+            with st.spinner("Finding a catalog match…"):
+                fast_reply: FastReply = asyncio.run(
+                    build_fast_reply(st.session_state.transcript)
+                )
+                st.session_state.fast_reply = fast_reply
+                st.session_state.answer_audio = synthesize(
+                    fast_reply.text,
+                    model=os.getenv("FAST_TTS_MODEL", "tts-1"),
+                )
+                st.session_state.answer_audio_text = fast_reply.text
+
+            # Streamlit sends these elements to the browser before the slower
+            # graph call below completes, so speech can start while live search
+            # and reconciliation continue.
+            st.markdown("**Transcript**")
+            st.write(st.session_state.transcript)
+            st.markdown("**Assistant**")
+            st.markdown(fast_reply.text.replace("$", r"\$"))
+            if st.session_state.answer_audio:
+                st.audio(
+                    st.session_state.answer_audio,
+                    format="audio/mp3",
+                    autoplay=True,
+                )
+            if fast_reply.live_followup_needed:
+                st.info("Checking today’s web listing and comparing sources…")
+            else:
+                st.info("Preparing the full product details…")
+        except Exception:
+            # Preserve the original full-graph path as a usable fallback.
+            st.session_state.fast_reply = None
+            st.session_state.answer_audio = None
+            st.session_state.answer_audio_text = None
+            st.warning("The quick spoken reply was unavailable; finishing the full search.")
 
 previous_result = st.session_state.assistant_result
 needs_result = (
@@ -229,11 +276,11 @@ if result is None:
 
 source_mode = source_mode_label(result)
 
-if new_transcript:
+if new_transcript and st.session_state.answer_audio is None:
     try:
         with st.spinner("Creating spoken answer…"):
             st.session_state.answer_audio = synthesize(result.answer_text)
-        st.session_state.audio_digest = pending_audio_digest
+            st.session_state.answer_audio_text = result.answer_text
     except Exception:
         st.error("Text-to-speech failed. The written answer is still available.")
 
@@ -241,14 +288,16 @@ with left:
     st.markdown("**Transcript**")
     st.write(result.transcript)
     st.caption(f"Source mode: {source_mode}")
-    st.markdown("**Answer**")
+    st.markdown("**Detailed answer**")
     st.markdown(result.answer_text.replace("$", r"\$"))
     if st.session_state.answer_audio:
+        st.caption("Spoken answer")
+        st.write(st.session_state.answer_audio_text)
         # A browser may block first autoplay; the visible player remains the replay control.
         st.audio(
             st.session_state.answer_audio,
             format="audio/mp3",
-            autoplay=True,
+            autoplay=new_transcript and st.session_state.fast_reply is None,
         )
 
 with right:
