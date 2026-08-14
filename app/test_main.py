@@ -29,7 +29,7 @@ class GraphResultSeamTests(unittest.TestCase):
         self.assertEqual(list(app.exception), [])
         self.assertEqual(run.call_count, 0)
         self.assertTrue(
-            any("Record a product question" in item.value for item in app.info)
+            any("Start the conversation" in item.value for item in app.info)
         )
 
     def test_fixture_mode_renders_one_graph_result_and_source_label(self) -> None:

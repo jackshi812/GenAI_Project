@@ -1,0 +1,16 @@
+{
+  "name": "product-discovery-livekit-component",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build --base=./"
+  },
+  "dependencies": {
+    "livekit-client": "^2.17.0",
+    "streamlit-component-lib": "^2.0.0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.2"
+  }
+}

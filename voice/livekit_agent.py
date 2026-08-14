@@ -36,7 +36,7 @@ from livekit.plugins import openai, silero
 
 from contracts import AssistantResult, ComparisonProduct
 from graph.build import _run as run_full_graph
-from graph.fast_reply import FastReply, build_fast_reply
+from graph.fast_reply import FastReply, build_fast_reply, warm_fast_reply
 from graph.retriever import _numeric_price
 
 
@@ -190,7 +190,11 @@ def create_session() -> AgentSession:
     )
 
 
-server = AgentServer()
+def _prewarm_process(_process) -> None:
+    warm_fast_reply()
+
+
+server = AgentServer(num_idle_processes=1, setup_fnc=_prewarm_process)
 
 
 @server.rtc_session(agent_name=os.getenv("LIVEKIT_AGENT_NAME", "product-discovery"))

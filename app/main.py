@@ -22,6 +22,12 @@ from dotenv import load_dotenv
 load_dotenv(REPO_ROOT / ".env")
 
 from app.config import live_evidence_notice, product_live_notice, source_mode_label
+from app.livekit_component import (
+    live_voice,
+    new_identity,
+    new_room_name,
+    settings_from_env,
+)
 from contracts import AssistantResult, ComparisonProduct, StepEvent
 from graph.build import run_graph
 from graph.fast_reply import FastReply, build_fast_reply
@@ -175,12 +181,40 @@ if "assistant_result" not in st.session_state:
     st.session_state.assistant_result = None
 if "fast_reply" not in st.session_state:
     st.session_state.fast_reply = None
+if "livekit_room" not in st.session_state:
+    st.session_state.livekit_room = new_room_name()
+if "livekit_identity" not in st.session_state:
+    st.session_state.livekit_identity = new_identity()
 
 left, right = st.columns([1, 1.4])
 new_transcript = False
 with left:
-    st.subheader("Ask by voice")
-    recording = st.audio_input("Ask for a product")
+    st.subheader("Talk to your store assistant")
+    try:
+        live_event = live_voice(
+            settings=settings_from_env(),
+            room_name=st.session_state.livekit_room,
+            identity=st.session_state.livekit_identity,
+        )
+    except Exception:
+        live_event = None
+        st.error("Live voice setup is incomplete. Check the LiveKit configuration.")
+
+    if live_event and live_event.get("type") == "assistant_result":
+        try:
+            live_result = AssistantResult.model_validate(live_event.get("data"))
+            st.session_state.assistant_result = live_result
+            st.session_state.transcript = live_result.transcript
+            # Remote LiveKit audio is already played by the browser component.
+            st.session_state.answer_audio = None
+            st.session_state.answer_audio_text = None
+            st.session_state.fast_reply = None
+        except Exception:
+            st.warning("The live session returned an invalid result payload.")
+
+    with st.expander("Record and send instead", expanded=False):
+        st.caption("Fallback mode: transcription begins only after recording stops.")
+        recording = st.audio_input("Record a product question")
     if recording is not None:
         audio_bytes = recording.getvalue()
         digest = hashlib.sha256(audio_bytes).hexdigest()
@@ -265,7 +299,7 @@ if needs_result:
 result: AssistantResult | None = st.session_state.assistant_result
 if result is None:
     with left:
-        st.info("Record a product question to begin.")
+        st.info("Start the conversation, allow microphone access, and begin speaking.")
         st.caption(f'Try asking: “{DEFAULT_TRANSCRIPT}”')
     with right:
         st.subheader("What you’ll get")

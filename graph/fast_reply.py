@@ -268,3 +268,9 @@ async def build_fast_reply(
         elapsed_ms=int((time.perf_counter() - started) * 1_000),
         live_followup_needed=wants_live,
     )
+
+
+def warm_fast_reply() -> None:
+    """Load catalog metadata and embedding runtime before the first voice turn."""
+    _catalog_brands()
+    catalog_search(query="product", k=1)

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live voice session</title>
+  </head>
+  <body>
+    <main class="voice-card">
+      <div class="topline">
+        <span id="state-dot" class="state-dot"></span>
+        <span id="status">Ready for a live conversation</span>
+        <span id="timer">00:00</span>
+      </div>
+
+      <div id="visualizer" class="visualizer" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+
+      <section class="transcript-panel" aria-live="polite">
+        <div class="eyebrow">You</div>
+        <div id="transcript" class="transcript muted">
+          Your words will appear here while you speak.
+        </div>
+      </section>
+
+      <section id="answer-panel" class="answer-panel hidden" aria-live="polite">
+        <div class="eyebrow">Store assistant</div>
+        <div id="answer" class="answer"></div>
+      </section>
+
+      <div id="error" class="error hidden"></div>
+      <div class="controls">
+        <button id="start" class="primary">Start conversation</button>
+        <button id="stop" class="secondary hidden">End conversation</button>
+      </div>
+      <audio id="agent-audio" autoplay></audio>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

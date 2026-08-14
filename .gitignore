@@ -8,3 +8,4 @@ catalog/chroma/
 mcp_server/logs/
 *.mp3
 *.wav
+node_modules/
