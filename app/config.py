@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import os
+from typing import Literal
 
-from contracts import AssistantResult
+from contracts import AssistantResult, StepEvent
+
+
+NoticeKind = Literal["caption", "warning"]
 
 
 def source_mode_label(result: AssistantResult | None = None) -> str:
@@ -25,7 +29,12 @@ def source_mode_label(result: AssistantResult | None = None) -> str:
                 return "Live MCP · Recorded Serper"
             if origins:
                 return "Live MCP · Unverified web evidence"
-            return "Live MCP · No matched web evidence"
+            web_steps = [step for step in result.steps if step.tool == "web.search"]
+            if not web_steps:
+                return "Live MCP · Catalog only (web not requested)"
+            if any(step.status == "error" for step in web_steps):
+                return "Live MCP · Web lookup incomplete"
+            return "Live MCP · No confirmed web match"
         serper_mode = (
             "Live Serper"
             if os.getenv("SERPER_API_KEY", "").strip()
@@ -35,7 +44,7 @@ def source_mode_label(result: AssistantResult | None = None) -> str:
     return f"Invalid TOOL_MODE · {tool_mode or 'empty'}"
 
 
-def live_evidence_notice(result: AssistantResult) -> tuple[str, str]:
+def live_evidence_notice(result: AssistantResult) -> tuple[NoticeKind, str]:
     """Describe absent live citations without overstating retrieval success."""
     web_steps = [step for step in result.steps if step.tool == "web.search"]
     if not web_steps:
@@ -48,3 +57,26 @@ def live_evidence_notice(result: AssistantResult) -> tuple[str, str]:
             "Live lookup completed, but no product match was confirmed.",
         )
     return "warning", "Live lookup did not complete; no live evidence is shown."
+
+
+def product_live_notice(web_step: StepEvent | None) -> tuple[str, str]:
+    """Explain a missing per-product match without implying delisting."""
+    if web_step is None:
+        return (
+            "Live search not requested",
+            "Ask about current price, availability, ratings, or reviews to compare this item.",
+        )
+    if web_step.status == "error":
+        return (
+            "Live search unavailable",
+            "The catalog result is still shown; no live evidence was used.",
+        )
+    if web_step.status == "completed":
+        return (
+            "No confirmed live match",
+            "Results were checked, but none could be verified as this exact product.",
+        )
+    return (
+        "Live search incomplete",
+        "No live evidence was used for this product.",
+    )

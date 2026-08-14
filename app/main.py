@@ -19,8 +19,8 @@ from dotenv import load_dotenv
 # repository-root .env file. Existing shell variables keep precedence.
 load_dotenv(REPO_ROOT / ".env")
 
-from app.config import live_evidence_notice, source_mode_label
-from contracts import AssistantResult, ComparisonProduct
+from app.config import live_evidence_notice, product_live_notice, source_mode_label
+from contracts import AssistantResult, ComparisonProduct, StepEvent
 from graph.build import run_graph
 from voice.stt import transcribe
 from voice.tts import cap_for_speech, synthesize
@@ -39,7 +39,9 @@ def _money(value: float | str | None) -> str:
     return value
 
 
-def _render_product(product: ComparisonProduct) -> None:
+def _render_product(
+    product: ComparisonProduct, web_step: StepEvent | None = None
+) -> None:
     conflicts = {conflict.field for conflict in product.conflicts}
     with st.container(border=True):
         image_column, catalog_column, live_column = st.columns([1, 2, 2])
@@ -61,8 +63,12 @@ def _render_product(product: ComparisonProduct) -> None:
         with live_column:
             st.markdown("**Live**")
             if product.live is None:
-                st.info("No live match found")
-                st.caption("The 2020 listing may be delisted.")
+                notice, detail = product_live_notice(web_step)
+                if web_step is not None and web_step.status == "error":
+                    st.warning(notice)
+                else:
+                    st.info(notice)
+                st.caption(detail)
             else:
                 st.markdown(f"**{product.live.title}**")
                 price = _money(product.live.price)
@@ -91,8 +97,10 @@ def _render_product(product: ComparisonProduct) -> None:
 def _render_evidence(result: AssistantResult, source_mode: str) -> None:
     st.subheader("Private catalog vs. live evidence")
     st.caption(source_mode)
-    for product in result.products[:3]:
-        _render_product(product)
+    web_steps = [step for step in result.steps if step.tool == "web.search"]
+    for index, product in enumerate(result.products[:3]):
+        web_step = web_steps[index] if index < len(web_steps) else None
+        _render_product(product, web_step)
 
     total_ms = sum(step.duration_ms or 0 for step in result.steps)
     completed_steps = sum(step.status == "completed" for step in result.steps)

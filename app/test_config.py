@@ -6,7 +6,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from app.config import live_evidence_notice, source_mode_label
+from app.config import live_evidence_notice, product_live_notice, source_mode_label
 from contracts import (
     AssistantResult,
     ComparisonProduct,
@@ -89,6 +89,25 @@ class SourceModeLabelTests(unittest.TestCase):
             )
             self.assertEqual(source_mode_label(live), "Live MCP · Live Serper")
 
+    def test_catalog_only_result_does_not_imply_web_search_ran(self) -> None:
+        result = AssistantResult(
+            transcript="Find a car under $1,000",
+            plan="Use the private catalog.",
+            answer_text="answer",
+            products=[],
+            steps=[],
+            citations=[],
+        )
+        with patch.dict(
+            os.environ,
+            {"TOOL_MODE": "live", "SERPER_API_KEY": "configured"},
+            clear=True,
+        ):
+            self.assertEqual(
+                source_mode_label(result),
+                "Live MCP · Catalog only (web not requested)",
+            )
+
 
 class LiveEvidenceNoticeTests(unittest.TestCase):
     @staticmethod
@@ -127,6 +146,16 @@ class LiveEvidenceNoticeTests(unittest.TestCase):
         kind, message = live_evidence_notice(self._result(self._web_step("error")))
         self.assertEqual(kind, "warning")
         self.assertIn("failed", message)
+
+    def test_product_notice_distinguishes_skipped_failed_and_unmatched(self) -> None:
+        self.assertEqual(product_live_notice(None)[0], "Live search not requested")
+        self.assertEqual(
+            product_live_notice(self._web_step("error"))[0],
+            "Live search unavailable",
+        )
+        title, detail = product_live_notice(self._web_step("completed"))
+        self.assertEqual(title, "No confirmed live match")
+        self.assertIn("verified as this exact product", detail)
 
 
 if __name__ == "__main__":
