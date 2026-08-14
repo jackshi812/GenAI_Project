@@ -20,6 +20,18 @@ DEFAULT_TRANSCRIPT = (
 
 
 class GraphResultSeamTests(unittest.TestCase):
+    def test_initial_load_waits_for_a_recording(self) -> None:
+        with patch.object(graph.build, "run_graph") as run:
+            app = AppTest.from_file(Path(__file__).with_name("main.py")).run(
+                timeout=10
+            )
+
+        self.assertEqual(list(app.exception), [])
+        self.assertEqual(run.call_count, 0)
+        self.assertTrue(
+            any("Record a product question" in item.value for item in app.info)
+        )
+
     def test_fixture_mode_renders_one_graph_result_and_source_label(self) -> None:
         result = AssistantResult(
             transcript=DEFAULT_TRANSCRIPT,
@@ -35,6 +47,7 @@ class GraphResultSeamTests(unittest.TestCase):
                 app = AppTest.from_file(Path(__file__).with_name("main.py")).run(
                     timeout=10
                 )
+                app.session_state.transcript = DEFAULT_TRANSCRIPT
                 app.run(timeout=10)
 
         self.assertEqual(list(app.exception), [])

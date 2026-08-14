@@ -153,7 +153,7 @@ st.title("Voice-to-Voice Product Discovery")
 st.caption("Compare a private 2020 catalog with clearly labeled live evidence.")
 
 if "transcript" not in st.session_state:
-    st.session_state.transcript = DEFAULT_TRANSCRIPT
+    st.session_state.transcript = ""
 if "audio_digest" not in st.session_state:
     st.session_state.audio_digest = None
 if "answer_audio" not in st.session_state:
@@ -186,8 +186,11 @@ with left:
 
 previous_result = st.session_state.assistant_result
 needs_result = (
-    previous_result is None
-    or previous_result.transcript != st.session_state.transcript
+    bool(st.session_state.transcript)
+    and (
+        previous_result is None
+        or previous_result.transcript != st.session_state.transcript
+    )
 )
 if needs_result:
     try:
@@ -204,7 +207,18 @@ if needs_result:
             st.stop()
         st.session_state.transcript = previous_result.transcript
 
-result: AssistantResult = st.session_state.assistant_result
+result: AssistantResult | None = st.session_state.assistant_result
+if result is None:
+    with left:
+        st.info("Record a product question to begin.")
+        st.caption(f'Try asking: “{DEFAULT_TRANSCRIPT}”')
+    with right:
+        st.subheader("What you’ll get")
+        st.markdown("**Private catalog evidence** · prices from the 2020 dataset")
+        st.markdown("**Web comparison** · clearly labeled live or recorded results")
+        st.markdown("**Grounded answer** · conflicts, citations, and spoken playback")
+    st.stop()
+
 source_mode = source_mode_label(result)
 
 if new_transcript:
