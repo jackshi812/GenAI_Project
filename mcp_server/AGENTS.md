@@ -1,12 +1,12 @@
-# Austin MCP server ownership
+# MCP server folder brief
 
-- Austin owns every implementation file in this folder.
+- Jack owns and maintains every implementation file in this folder.
 - This folder contains one stdio MCP server for product evidence.
 - The assignment requires exactly two tools: `rag.search` and `web.search`.
 - Do not add a third tool without changing the assignment architecture.
-- `rag.search` wraps Austin's private catalog retrieval.
+- `rag.search` wraps the project's private catalog retrieval.
 - `web.search` uses Serper Shopping or exact recorded Serper fixtures.
-- Reconciliation belongs in Ginger's Retriever node, not this server.
+- Reconciliation belongs in the graph Retriever node, not this server.
 - Tool discovery must expose explicit JSON input schemas.
 - stdout is reserved exclusively for MCP protocol traffic.
 - Send operational details to JSONL logs or stderr.

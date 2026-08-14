@@ -1,6 +1,6 @@
-# Austin catalog ownership
+# Catalog folder brief
 
-- Austin owns every implementation file in this folder.
+- Jack owns and maintains every implementation file in this folder.
 - This folder normalizes and retrieves the private Amazon 2020 catalog.
 - Read `../Instructions.md` before changing public result shapes.
 - The working CSV is `../dataset/amazon_product_data_cleaned.csv`.

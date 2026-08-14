@@ -1,6 +1,6 @@
 # App folder brief
 
-This folder is owned by Jack.
+This folder is owned and maintained by Jack as part of his end-to-end project ownership.
 
 It contains the Streamlit presentation layer: microphone capture, transcript,
 spoken answer playback, product comparisons, completed steps, and citations.
@@ -15,4 +15,4 @@ reconciliation, or other business logic.
 Show missing catalog fields and missing live matches honestly. Never invent a
 price, rating, ingredient, citation, or running agent state.
 
-Jack owns changes in this folder. Discuss shared contract changes first.
+Jack owns changes in this folder and coordinates shared contract updates across layers.

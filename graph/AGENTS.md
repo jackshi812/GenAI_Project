@@ -1,6 +1,6 @@
-# graph/ — Ginger's folder
+# Graph folder brief
 
-This folder is owned by Ginger. It holds the LangGraph orchestration layer:
+This folder is owned and maintained by Jack. It holds the LangGraph orchestration layer:
 state schema, the Router / Planner / Retriever / Answerer-Critic nodes, the
 tool-client seam, and the public `run_graph(transcript) -> AssistantResult`
 entry point.

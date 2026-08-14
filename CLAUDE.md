@@ -1,35 +1,34 @@
 # Voice-to-Voice Product Discovery Assistant
 
-Class final project. Jack is the project owner and final integrator; three
-technical owners build in parallel.
+Class final project. Jack is the project owner and sole technical maintainer.
+Austin and Ginger completed their assigned work and formally handed their
+implementation areas to Jack.
 
 `Instructions.md` is the assignment specification. It outranks everything in this file.
 
-## Find your plan
+## Ownership and historical plans
 
-| You | Start here | Your implementation folders | Your authoritative plan |
+| Contributor | Handoff packet | Work completed | Historical plan |
 |---|---|---|---|
 | **Austin** | `Austin/README.md` | `catalog/`, `mcp_server/` | `.planning/phases/01-parallel-build/01-01-PLAN.md` |
 | **Ginger** | `Ginger/README.md` | `graph/`, `prompts/` | `.planning/phases/01-parallel-build/01-02-PLAN.md` |
 | **Jack** | `Jack/README.md` | `voice/`, `app/`, repo root | `.planning/phases/01-parallel-build/01-03-PLAN.md` |
 
-The capitalized contributor folders are handoff packets, not implementation
-destinations. Read your packet first, then write code only in the implementation
-folders assigned above.
+The contributor folders and Phase 1 plans preserve build history and design
+context; they no longer restrict implementation ownership. **Jack owns and may
+change the entire repository**, including `catalog/`, `mcp_server/`, `graph/`,
+`prompts/`, `voice/`, `app/`, shared contracts, planning artifacts, and repo-root
+configuration.
 
 ## Project accountability
 
-- **Jack coordinates the finished project.** He maintains shared contracts,
-  helps resolve cross-layer decisions, and brings together integration,
-  documentation, presentation, and the final demo.
-- Austin remains responsible for implementation in `catalog/` and
-  `mcp_server/`. Ginger remains responsible for implementation in `graph/` and
-  `prompts/`. Jack reviews their boundary outputs but does not take over their
-  folders.
-- During integration, Ginger implements the graph-side MCP adapter, Austin
-  supports the server boundary, and Jack wires the app. Cross-layer tradeoffs
-  should be discussed by the affected owners; Jack keeps the combined product
-  coherent.
+- **Jack owns the finished project end to end.** He maintains every layer,
+  shared contract, integration point, test, document, presentation, and demo.
+- Austin's and Ginger's contributions remain part of the project history, but
+  they have no active folder restrictions or required approval gates after the
+  handoff.
+- Jack resolves cross-layer tradeoffs and may refactor across folders while
+  preserving the architectural and grounding rules in this file.
 - After the parallel plans, follow
   `.planning/phases/02-integration/02-01-PLAN.md`, then
   `.planning/phases/03-delivery/03-01-PLAN.md`. Jack coordinates both phases.
@@ -40,14 +39,14 @@ context records sixteen shared decisions (D-01 … D-16) cited by the plans.
 
 ## Collaboration boundaries
 
-- Work primarily in your assigned folders. Only Jack writes `contracts.py`;
-  Austin and Ginger import from it. Discuss cross-folder changes first.
-- Keep work independent where practical. Ginger can stub both MCP tools from
-  `fixtures.json`, Austin can replay recorded Serper responses when there is no
-  key, and Jack can render the screen from fixtures.
+- Jack may work in every implementation folder. `contracts.py` remains the
+  single source of truth for shared public models.
+- Preserve clean layer boundaries: the app renders graph results, the graph
+  owns orchestration and reconciliation, and the MCP server exposes the two
+  specified evidence tools.
 - **Never invent a rating or a price.** The dataset has no ratings at all. Ratings come only from live search results. Fabricating them defeats the grounding this assignment exists to teach and is trivially detectable.
 - **Never commit `.env`. Never log an API key.**
-- **Everyone commits to `main`.** Folders are disjoint so conflicts are rare. Pull before you push.
+- Jack commits integrated work to `main` and keeps changes scoped and tested.
 
 ## What bites you in the data
 
@@ -62,22 +61,17 @@ Full detail in `01-CONTEXT.md`.
 
 ## Shared-output sync
 
-Each owner shares one real captured output—actual JSON produced by the code, not
-a hand-written schema or example. Compare the three shapes before integration
-to catch issues type annotations miss, such as a price serialized as `"17.49"`
-instead of `17.49` or brand punctuation that prevents matching.
+The Phase 1 owners shared real captured outputs—actual JSON produced by the
+code, not hand-written schemas. Keep comparing boundary shapes during
+integration to catch issues type annotations miss, such as a price serialized
+as `"17.49"` instead of `17.49` or brand punctuation that prevents matching.
 
 ## Setup
 
-Before parallel work, Jack confirms
-`dataset/amazon_product_data_cleaned.csv` is tracked on `main`; it is Austin's
-starting input. Jack also helps the team obtain working Anthropic, OpenAI, and
-Serper credentials through an approved private channel—never the repository,
-committed files, logs, or group chat.
-
-Jack shares `requirements.txt`, `contracts.py`, `fixtures.json`, and
-`.env.example` early. Until those land, contributors may install what they need
-locally and continue work that does not depend on the shared boundary.
+`dataset/amazon_product_data_cleaned.csv` must remain tracked on `main`. Keep
+Anthropic, OpenAI, and Serper credentials in approved private configuration—never
+the repository, committed files, logs, or chat. Shared setup lives in
+`requirements.txt`, `contracts.py`, `fixtures.json`, and `.env.example`.
 
 ---
 
