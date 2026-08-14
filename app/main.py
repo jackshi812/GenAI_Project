@@ -13,6 +13,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import streamlit as st
+from dotenv import load_dotenv
+
+# Match the documented setup: credentials and mode settings live in the
+# repository-root .env file. Existing shell variables keep precedence.
+load_dotenv(REPO_ROOT / ".env")
 
 from app.config import source_mode_label
 from contracts import AssistantResult, ComparisonProduct
