@@ -74,6 +74,10 @@ class WebResult(_BaseModel):
     # Additive: live search is the only rating source in this project.
     rating: float | None = None
 
+    # Additive provenance. ``unknown`` keeps older fixture/test payloads valid,
+    # but the Phase 2 live acceptance gate rejects it.
+    origin: _Literal["live_serper", "recorded_fixture", "unknown"] = "unknown"
+
 
 class MatchInfo(_BaseModel):
     """Inspectable evidence for a private-to-live product match."""

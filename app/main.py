@@ -19,11 +19,11 @@ from dotenv import load_dotenv
 # repository-root .env file. Existing shell variables keep precedence.
 load_dotenv(REPO_ROOT / ".env")
 
-from app.config import source_mode_label
+from app.config import live_evidence_notice, source_mode_label
 from contracts import AssistantResult, ComparisonProduct
 from graph.build import run_graph
 from voice.stt import transcribe
-from voice.tts import synthesize
+from voice.tts import cap_for_speech, synthesize
 
 DEFAULT_TRANSCRIPT = (
     "Compare the current price of the Nerf N Strike Elite Strongarm blaster "
@@ -95,8 +95,13 @@ def _render_evidence(result: AssistantResult, source_mode: str) -> None:
         _render_product(product)
 
     total_ms = sum(step.duration_ms or 0 for step in result.steps)
+    completed_steps = sum(step.status == "completed" for step in result.steps)
+    error_steps = sum(step.status == "error" for step in result.steps)
+    status_summary = f"{completed_steps} completed"
+    if error_steps:
+        status_summary += f" · {error_steps} errors"
     with st.expander(
-        f"Agent step log · {len(result.steps)} completed steps · {total_ms} ms",
+        f"Agent step log · {len(result.steps)} events · {status_summary} · {total_ms} ms",
         expanded=True,
     ):
         st.dataframe(
@@ -122,7 +127,11 @@ def _render_evidence(result: AssistantResult, source_mode: str) -> None:
         st.markdown("**🌐 Live sources**")
         live_citations = [item for item in result.citations if item.kind == "live"]
         if not live_citations:
-            st.caption("No live source was needed for this result.")
+            notice_kind, notice = live_evidence_notice(result)
+            if notice_kind == "warning":
+                st.warning(notice)
+            else:
+                st.caption(notice)
         for citation in live_citations:
             st.markdown(f"- `live` · [{citation.label}]({citation.url})")
 
@@ -154,6 +163,7 @@ if "assistant_result" not in st.session_state:
 
 left, right = st.columns([1, 1.4])
 new_transcript = False
+pending_audio_digest = None
 with left:
     st.subheader("Ask by voice")
     recording = st.audio_input("Ask for a product")
@@ -161,14 +171,14 @@ with left:
         audio_bytes = recording.getvalue()
         digest = hashlib.sha256(audio_bytes).hexdigest()
         if digest != st.session_state.audio_digest:
-            st.session_state.audio_digest = digest
-            st.session_state.answer_audio = None
             try:
                 with st.spinner("Transcribing…"):
                     transcript = transcribe(audio_bytes, filename=recording.name)
                 if transcript:
+                    st.session_state.answer_audio = None
                     st.session_state.transcript = transcript
                     new_transcript = True
+                    pending_audio_digest = digest
                 else:
                     st.warning("No speech was detected. Please record again.")
             except Exception:
@@ -182,7 +192,11 @@ needs_result = (
 if needs_result:
     try:
         with st.spinner("Running the product discovery graph…"):
-            st.session_state.assistant_result = run_graph(st.session_state.transcript)
+            graph_result = run_graph(st.session_state.transcript)
+            spoken_answer = cap_for_speech(graph_result.answer_text)
+            st.session_state.assistant_result = graph_result.model_copy(
+                update={"answer_text": spoken_answer}
+            )
     except Exception:
         st.error("Product discovery failed. Please check the graph and tool configuration.")
         new_transcript = False
@@ -191,12 +205,13 @@ if needs_result:
         st.session_state.transcript = previous_result.transcript
 
 result: AssistantResult = st.session_state.assistant_result
-source_mode = source_mode_label()
+source_mode = source_mode_label(result)
 
 if new_transcript:
     try:
         with st.spinner("Creating spoken answer…"):
             st.session_state.answer_audio = synthesize(result.answer_text)
+        st.session_state.audio_digest = pending_audio_digest
     except Exception:
         st.error("Text-to-speech failed. The written answer is still available.")
 

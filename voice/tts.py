@@ -31,14 +31,23 @@ def cap_for_speech(text: str, max_words: int = 30) -> str:
 
 
 def synthesize(text: str) -> bytes:
-    """Synthesize a capped answer and return MP3 bytes."""
+    """Synthesize exactly ``text`` and return MP3 bytes.
+
+    Callers must apply :func:`cap_for_speech` before displaying and passing an
+    answer here. Failing visibly is safer than silently speaking a different
+    answer from the one shown on screen.
+    """
+    if cap_for_speech(text) != text:
+        raise ValueError(
+            "answer exceeds the 30-word speech limit; cap it before synthesis"
+        )
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not set")
     response = OpenAI(api_key=api_key).audio.speech.create(
         model=os.getenv("TTS_MODEL", "gpt-4o-mini-tts"),
         voice=os.getenv("TTS_VOICE", "alloy"),
-        input=cap_for_speech(text),
+        input=text,
         response_format="mp3",
     )
     return response.content
