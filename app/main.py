@@ -248,6 +248,15 @@ st.markdown(
     div[data-testid="stAudioInput"] {
         padding: 0.35rem 0 0.55rem;
     }
+    div[data-testid="stTextInput"] input {
+        min-height: 3.25rem;
+        font-size: 1rem;
+    }
+    div[data-testid="stFormSubmitButton"] button {
+        min-height: 3.1rem;
+        font-size: 1rem;
+        font-weight: 700;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -280,7 +289,40 @@ if "livekit_identity" not in st.session_state:
 left, right = st.columns([1, 1.4])
 new_transcript = False
 with left:
-    st.subheader("Talk to your store assistant")
+    st.subheader("Talk or type to your store assistant")
+
+    with st.container(border=True):
+        st.markdown("#### Type a message")
+        st.caption("Use the same grounded product search without turning on your mic.")
+        with st.form("typed_message_form", clear_on_submit=True):
+            typed_message = st.text_input(
+                "Message",
+                placeholder=(
+                    "Ask for a product, budget, current price, or recommendation…"
+                ),
+                label_visibility="collapsed",
+                key="typed_product_question",
+            )
+            typed_submitted = st.form_submit_button(
+                "Send message",
+                type="primary",
+                use_container_width=True,
+            )
+
+    if typed_submitted:
+        message = typed_message.strip()
+        if message:
+            st.session_state.transcript = message
+            st.session_state.assistant_result = None
+            st.session_state.pending_fast_reply = None
+            st.session_state.answer_audio = None
+            st.session_state.answer_audio_text = None
+            st.session_state.fast_reply = None
+            new_transcript = True
+        else:
+            st.warning("Type a message before sending.")
+
+    st.markdown("#### Or speak live")
     try:
         live_event = live_voice(
             settings=settings_from_env(),
@@ -309,22 +351,6 @@ with left:
                 st.session_state.fast_reply = None
             except Exception:
                 st.warning("The live session returned an invalid result payload.")
-
-    st.markdown("**Or type to your store assistant**")
-    typed_message = st.chat_input(
-        "Ask for a product, budget, current price, or recommendation…",
-        key="typed_product_question",
-    )
-    if typed_message:
-        message = typed_message.strip()
-        if message:
-            st.session_state.transcript = message
-            st.session_state.assistant_result = None
-            st.session_state.pending_fast_reply = None
-            st.session_state.answer_audio = None
-            st.session_state.answer_audio_text = None
-            st.session_state.fast_reply = None
-            new_transcript = True
 
     with st.expander("Record and send instead", expanded=False):
         st.caption("Fallback mode: transcription begins only after recording stops.")

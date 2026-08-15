@@ -34,7 +34,8 @@ class GraphResultSeamTests(unittest.TestCase):
         self.assertTrue(
             any("Start the conversation" in item.value for item in app.info)
         )
-        self.assertEqual(len(app.chat_input), 1)
+        self.assertEqual(len(app.text_input), 1)
+        self.assertTrue(any(button.label == "Send message" for button in app.button))
 
     def test_typed_message_runs_the_same_grounded_result_path(self) -> None:
         question = "Find me Pokemon cards under $25"
@@ -65,7 +66,12 @@ class GraphResultSeamTests(unittest.TestCase):
                     app = AppTest.from_file(Path(__file__).with_name("main.py")).run(
                         timeout=10
                     )
-                    app.chat_input[0].set_value(question).run(timeout=10)
+                    app.text_input[0].set_value(question)
+                    next(
+                        button
+                        for button in app.button
+                        if button.label == "Send message"
+                    ).click().run(timeout=10)
 
         self.assertEqual(list(app.exception), [])
         run.assert_called_once_with(question)
