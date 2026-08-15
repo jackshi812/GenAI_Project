@@ -16,6 +16,7 @@ import inspect
 import json
 import logging
 import os
+import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -122,6 +123,9 @@ class ProductDiscoveryAgent(Agent):
         if not transcript:
             return
 
+        for pending in tuple(self._tasks):
+            pending.cancel()
+
         fast = await build_fast_reply(transcript)
         await _emit(
             self._event_sink,
@@ -131,6 +135,7 @@ class ProductDiscoveryAgent(Agent):
                 "answer_text": fast.text,
                 "elapsed_ms": fast.elapsed_ms,
                 "live_followup_needed": fast.live_followup_needed,
+                "turn_kind": fast.turn_kind,
                 "ttfa_target_ms": int(os.getenv("VOICE_TTFA_TARGET_MS", "3000")),
                 "product": fast.product.model_dump(mode="json") if fast.product else None,
                 "citations": [item.model_dump(mode="json") for item in fast.citations],
@@ -150,7 +155,34 @@ class ProductDiscoveryAgent(Agent):
 
     async def _finish_full_turn(self, transcript, fast: FastReply, first_speech) -> None:
         try:
-            result = await run_full_graph(transcript)
+            if fast.turn_kind != "catalog":
+                result = AssistantResult(
+                    transcript=transcript,
+                    plan=(
+                        "Conversational response; no product tools needed."
+                        if fast.turn_kind == "conversation"
+                        else "No reliable catalog match; retrieval stopped."
+                    ),
+                    answer_text=fast.text,
+                    products=[],
+                    steps=[],
+                    citations=[],
+                )
+            else:
+                graph_transcript = transcript
+                if fast.live_followup_needed and not re.search(
+                    r"\b(?:current|today|now|latest|live|available|availability|rating|review)\b",
+                    transcript,
+                    re.IGNORECASE,
+                ):
+                    graph_transcript = (
+                        f"{transcript} Compare current web price and availability."
+                    )
+                result = await run_full_graph(graph_transcript)
+                if result.transcript != transcript:
+                    result = result.model_copy(update={"transcript": transcript})
+            if fast.turn_kind != "catalog":
+                await first_speech.wait_for_playout()
             await _emit(
                 self._event_sink,
                 "assistant_result",
@@ -172,7 +204,7 @@ def create_session() -> AgentSession:
     """Configure the measured STT → fast retrieval → TTS pipeline."""
     vad = silero.VAD.load(
         min_speech_duration=0.08,
-        min_silence_duration=float(os.getenv("VOICE_END_SILENCE_S", "0.35")),
+        min_silence_duration=float(os.getenv("VOICE_END_SILENCE_S", "0.55")),
         prefix_padding_duration=0.2,
     )
     return AgentSession(

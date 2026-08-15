@@ -27,6 +27,7 @@ let connectedRoom = null;
 let startedAt = null;
 let timerHandle = null;
 let lastResultId = null;
+let readyForNewTurn = false;
 const userSegments = new Map();
 
 function setStatus(text, state = "idle") {
@@ -96,6 +97,7 @@ function handleProductEvent(payload, _participant, _kind, topic) {
     if (envelope.type === "fast_reply") {
       elements.answer.textContent = envelope.data.answer_text;
       elements.answerPanel.classList.remove("hidden");
+      readyForNewTurn = true;
       setStatus(
         envelope.data.live_followup_needed
           ? "Speaking now; checking current web evidence in the background…"
@@ -132,6 +134,12 @@ function configureRoom(nextRoom) {
     .on(RoomEvent.DataReceived, handleProductEvent)
     .on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
       if (speakers.some((speaker) => speaker.identity === nextRoom.localParticipant.identity)) {
+        if (readyForNewTurn) {
+          userSegments.clear();
+          renderTranscript();
+          elements.answerPanel.classList.add("hidden");
+          readyForNewTurn = false;
+        }
         setStatus("Listening…", "listening");
       }
     })

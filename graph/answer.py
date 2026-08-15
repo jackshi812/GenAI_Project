@@ -115,13 +115,12 @@ def _degraded_answer(products: list[ComparisonProduct]) -> AnswerOutput:
     conflict is still spoken aloud."""
     top = products[0]
     r = top.private
-    parts = [f"Top pick: {_short_title(r.title)}."]
+    parts = [f"I’d suggest starting with {_short_title(r.title)}."]
     if r.price_low is not None:
         parts.append(f"Catalog price ${r.price_low:.2f} in 2020.")
     live_price = _numeric_price(top.live) if top.live is not None else None
     if live_price is not None:
         parts.append(f"Live price ${live_price:.2f} now.")
-    parts.append("Details on screen.")
     return AnswerOutput(
         answer_text=" ".join(parts),
         cited_doc_ids=[r.doc_id],

@@ -14,7 +14,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 import pyarrow.parquet as pq
 
@@ -39,11 +39,71 @@ _NUMBER_WORD = (
 _BUDGET_CLAUSE = re.compile(
     _BUDGET_PREFIX.pattern
     + rf"(?:[\d,]+(?:\.\d{{1,2}})?|(?:(?:{_NUMBER_WORD})[ -]*)+)"
-    + r"(?:\s*dollars?)?",
+    + r"(?:\s*(?:dollars?|bucks?))?",
     re.IGNORECASE,
 )
 _CURRENCY_PATTERN = re.compile(r"\$\s*(?P<amount>[\d,]+(?:\.\d{1,2})?)")
 _BRAND_SOURCE = Path(__file__).resolve().parents[1] / "catalog" / "products.parquet"
+_QUERY_STOPWORDS = {
+    "a",
+    "an",
+    "buy",
+    "bucks",
+    "buck",
+    "can",
+    "could",
+    "do",
+    "for",
+    "get",
+    "i",
+    "is",
+    "me",
+    "not",
+    "of",
+    "please",
+    "s",
+    "so",
+    "some",
+    "that",
+    "this",
+    "the",
+    "uh",
+    "um",
+    "well",
+    "what",
+    "which",
+    "would",
+    "you",
+}
+_BROAD_PRODUCT_TERMS = {
+    "cleaner",
+    "cleaners",
+    "clothes",
+    "clothing",
+    "food",
+    "game",
+    "games",
+    "groceries",
+    "grocery",
+    "item",
+    "items",
+    "product",
+    "products",
+    "puzzle",
+    "puzzles",
+    "snack",
+    "snacks",
+    "toy",
+    "toys",
+}
+_GROCERY_TERMS = {"food", "grocery", "snack"}
+_GREETING_PATTERNS = (
+    re.compile(r"\bhow are you(?: doing)?\b", re.IGNORECASE),
+    re.compile(r"^\s*(?:hi|hello|hey)(?:\b|[!.])", re.IGNORECASE),
+    re.compile(r"\bgood (?:morning|afternoon|evening)\b", re.IGNORECASE),
+    re.compile(r"\bwhat(?:'s| is) up\b", re.IGNORECASE),
+)
+_THANKS_PATTERN = re.compile(r"\b(?:thanks|thank you)\b", re.IGNORECASE)
 
 _ONES = {
     "zero": 0,
@@ -88,6 +148,7 @@ class FastReply:
     citations: tuple[Citation, ...]
     elapsed_ms: int
     live_followup_needed: bool
+    turn_kind: Literal["conversation", "catalog", "no_match"] = "catalog"
 
 
 def _words_to_number(value: str) -> float | None:
@@ -147,7 +208,10 @@ def semantic_query(transcript: str) -> str:
         flags=re.IGNORECASE,
     )
     query = re.sub(r"[^a-zA-Z0-9' -]+", " ", query)
-    query = " ".join(query.split()).strip(" -")
+    tokens = query.split()
+    query = " ".join(
+        token for token in tokens if token.casefold() not in _QUERY_STOPWORDS
+    ).strip(" -")
     return query or "product"
 
 
@@ -168,17 +232,72 @@ def _catalog_brands() -> tuple[str, ...]:
 
 
 def extract_brand(transcript: str) -> str | None:
-    """Return a catalog-known brand explicitly present in the transcript."""
+    """Return only a catalog brand introduced with an explicit brand cue."""
     normalized = re.sub(r"[^a-z0-9]+", " ", transcript.casefold()).strip()
     padded = f" {normalized} "
     matches: list[tuple[int, int, str]] = []
     for brand in _catalog_brands():
         candidate = re.sub(r"[^a-z0-9]+", " ", brand.casefold()).strip()
         if candidate:
-            position = padded.find(f" {candidate} ")
-            if position >= 0:
-                matches.append((position, -len(candidate), brand))
+            cues = (
+                f" brand {candidate} ",
+                f" by {candidate} ",
+                f" from {candidate} ",
+                f" {candidate} brand ",
+            )
+            positions = [padded.find(cue) for cue in cues if padded.find(cue) >= 0]
+            if positions:
+                matches.append((min(positions), -len(candidate), brand))
     return min(matches)[2] if matches else None
+
+
+def _conversation_reply(transcript: str) -> str | None:
+    if any(pattern.search(transcript) for pattern in _GREETING_PATTERNS):
+        return "I’m doing well—thanks for asking! What are you shopping for today?"
+    if _THANKS_PATTERN.search(transcript):
+        return "You’re welcome! Is there another product you’d like me to check?"
+    return None
+
+
+def _query_terms(value: str) -> set[str]:
+    def normalize(term: str) -> str:
+        if term.endswith("ies") and len(term) > 4:
+            return f"{term[:-3]}y"
+        if term.endswith("s") and len(term) > 3:
+            return term[:-1]
+        return term
+
+    return {
+        normalize(term)
+        for term in re.findall(r"[a-z0-9]+", value.casefold())
+        if term not in _QUERY_STOPWORDS
+    }
+
+
+def _is_specific_product(query: str, explicit_brand: str | None) -> bool:
+    terms = _query_terms(query)
+    if explicit_brand or any(term.isdigit() for term in terms):
+        return True
+    return len(terms) >= 2 and not terms.issubset(_BROAD_PRODUCT_TERMS)
+
+
+def _is_relevant(query: str, result: dict) -> bool:
+    query_terms = _query_terms(query)
+    title_terms = _query_terms(str(result.get("title") or ""))
+    if not query_terms:
+        return False
+    overlap = len(query_terms & title_terms)
+    coverage = overlap / len(query_terms)
+    similarity = float(result.get("similarity") or 0.0)
+    if query_terms & _GROCERY_TERMS and result.get("category") != (
+        "Grocery & Gourmet Food"
+    ):
+        return False
+    return (
+        coverage >= 0.8
+        or (coverage >= 0.6 and similarity >= 0.4)
+        or (overlap >= 1 and similarity >= 0.55)
+    )
 
 
 def _money(value: float | str | None) -> str | None:
@@ -214,18 +333,21 @@ def _spoken_title(title: str, limit: int = 6) -> str:
 def _compose(product: RagResult, budget_max: float | None, wants_live: bool) -> str:
     title = _spoken_title(product.title)
     price = _money(product.price_low if product.price_low is not None else product.price)
-    if price:
-        first = f"Sure—I found {title} at {price} in our 2020 catalog."
-    else:
-        first = f"Sure—I found {title} in our 2020 catalog."
-
-    # Keep the first utterance deliberately short. Live/web work continues in
-    # the background and gets its own provenance-aware follow-up.
     if wants_live:
-        return first
+        catalog_match = f"{title} at {price}" if price else title
+        return (
+            f"I found {catalog_match} in our 2020 catalog. "
+            "I’m checking current listings too."
+        )
     if budget_max is not None and product.budget_fit == "within":
-        return f"{first} It fits your ${budget_max:,.0f} budget."
-    return f"{first} I’ll bring up the details for you."
+        catalog_match = f"{title} at {price}" if price else title
+        return (
+            f"One option within your ${budget_max:,.0f} budget is "
+            f"{catalog_match} from our 2020 catalog."
+        )
+    if price:
+        return f"One catalog option worth a look is {title} at {price}."
+    return f"One catalog option worth a look is {title}."
 
 
 async def build_fast_reply(
@@ -235,31 +357,55 @@ async def build_fast_reply(
 ) -> FastReply:
     """Return one useful catalog-grounded reply without any LLM call."""
     started = time.perf_counter()
+    conversation_text = _conversation_reply(transcript)
+    if conversation_text:
+        return FastReply(
+            text=conversation_text,
+            product=None,
+            citations=(),
+            elapsed_ms=int((time.perf_counter() - started) * 1_000),
+            live_followup_needed=False,
+            turn_kind="conversation",
+        )
+
     budget_max = extract_budget_max(transcript)
-    wants_live = bool(_LIVE_TERMS.search(transcript))
     query = semantic_query(transcript)
-    # Match brands only after routing/budget words are removed. Some derived
-    # catalog brands are ordinary words (for example, "Under") and must not
-    # be inferred from phrases such as "under $20".
-    brand = extract_brand(query)
+    brand = extract_brand(transcript)
+    category = (
+        "Grocery & Gourmet Food"
+        if _query_terms(query) & _GROCERY_TERMS
+        else None
+    )
+    wants_live = bool(_LIVE_TERMS.search(transcript)) or _is_specific_product(
+        query, brand
+    )
     raw_results = await asyncio.to_thread(
         search_fn,
         query=query,
         price_max=budget_max,
+        category=category,
         brand=brand,
-        k=1,
+        k=5,
     )
-    if not raw_results:
-        text = "I couldn’t find a close catalog match yet. Let me try a broader search."
+    relevant = next((item for item in raw_results if _is_relevant(query, item)), None)
+    if relevant is None:
+        budget_phrase = (
+            f" under ${budget_max:,.0f}" if budget_max is not None else ""
+        )
+        text = (
+            f"I’m not seeing a reliable catalog match{budget_phrase}. "
+            "Try naming a specific product, and I can check current listings too."
+        )
         return FastReply(
             text=text,
             product=None,
             citations=(),
             elapsed_ms=int((time.perf_counter() - started) * 1_000),
-            live_followup_needed=wants_live,
+            live_followup_needed=False,
+            turn_kind="no_match",
         )
 
-    product = RagResult.model_validate(raw_results[0])
+    product = RagResult.model_validate(relevant)
     citation = Citation(kind="private", label=product.doc_id, url=None)
     return FastReply(
         text=_compose(product, budget_max, wants_live),
