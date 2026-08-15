@@ -235,8 +235,28 @@ def _render_pending_fast(data: dict) -> None:
 
 
 st.set_page_config(page_title="Product Discovery Assistant", layout="wide")
+st.markdown(
+    """
+    <style>
+    div[data-testid="stAudioInput"] button {
+        min-width: 4.5rem !important;
+        min-height: 4.5rem !important;
+        border-radius: 1rem !important;
+        transform: scale(1.08);
+        transform-origin: left center;
+    }
+    div[data-testid="stAudioInput"] {
+        padding: 0.35rem 0 0.55rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 st.title("Voice-to-Voice Product Discovery")
-st.caption("Compare a private 2020 catalog with clearly labeled live evidence.")
+st.caption(
+    "Speak or type to compare a private 2020 catalog with clearly labeled "
+    "live evidence."
+)
 
 if "transcript" not in st.session_state:
     st.session_state.transcript = ""
@@ -289,6 +309,22 @@ with left:
                 st.session_state.fast_reply = None
             except Exception:
                 st.warning("The live session returned an invalid result payload.")
+
+    st.markdown("**Or type to your store assistant**")
+    typed_message = st.chat_input(
+        "Ask for a product, budget, current price, or recommendation…",
+        key="typed_product_question",
+    )
+    if typed_message:
+        message = typed_message.strip()
+        if message:
+            st.session_state.transcript = message
+            st.session_state.assistant_result = None
+            st.session_state.pending_fast_reply = None
+            st.session_state.answer_audio = None
+            st.session_state.answer_audio_text = None
+            st.session_state.fast_reply = None
+            new_transcript = True
 
     with st.expander("Record and send instead", expanded=False):
         st.caption("Fallback mode: transcription begins only after recording stops.")

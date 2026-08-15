@@ -82,20 +82,24 @@ body { margin: 0; background: transparent; }
 .transcript, .answer { font-size: 16px; line-height: 1.45; min-height: 24px; }
 .muted { color: #969ba8; }
 
-.controls { display: flex; gap: 10px; margin-top: 16px; }
+.controls { display: flex; gap: 12px; margin-top: 18px; }
 button {
   appearance: none;
   border: 0;
-  border-radius: 10px;
+  border-radius: 14px;
   cursor: pointer;
   font: inherit;
-  font-weight: 650;
-  padding: 10px 16px;
+  font-size: 18px;
+  font-weight: 700;
+  min-height: 64px;
+  padding: 16px 24px;
+  width: 100%;
 }
 button:disabled { cursor: wait; opacity: .65; }
-.primary { color: #fff; background: #1769d2; }
+.primary { color: #fff; background: #1769d2; box-shadow: 0 6px 16px #1769d22b; }
 .primary:hover { background: #105dbf; }
-.secondary { color: #353945; background: #e4e8f0; }
+.secondary { color: #fff; background: #c43f4f; box-shadow: 0 6px 16px #c43f4f24; }
+.secondary:hover { background: #aa3040; }
 .error {
   color: #9b2636;
   background: #fff0f2;

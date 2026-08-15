@@ -5,12 +5,15 @@ from __future__ import annotations
 import os
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from streamlit.testing.v1 import AppTest
 
 from contracts import AssistantResult
 import graph.build
+import graph.fast_reply
+import voice.tts
+from graph.fast_reply import FastReply
 
 
 DEFAULT_TRANSCRIPT = (
@@ -30,6 +33,48 @@ class GraphResultSeamTests(unittest.TestCase):
         self.assertEqual(run.call_count, 0)
         self.assertTrue(
             any("Start the conversation" in item.value for item in app.info)
+        )
+        self.assertEqual(len(app.chat_input), 1)
+
+    def test_typed_message_runs_the_same_grounded_result_path(self) -> None:
+        question = "Find me Pokemon cards under $25"
+        result = AssistantResult(
+            transcript=question,
+            plan="Search grounded product evidence.",
+            answer_text="Here are grounded Pokemon card options.",
+            products=[],
+            steps=[],
+            citations=[],
+        )
+        fast = FastReply(
+            text="I’m checking Pokemon card options under $25.",
+            product=None,
+            citations=(),
+            elapsed_ms=20,
+            live_followup_needed=True,
+            turn_kind="web_fallback",
+        )
+
+        with patch.object(graph.build, "run_graph", return_value=result) as run:
+            with patch.object(
+                graph.fast_reply,
+                "build_fast_reply",
+                new=AsyncMock(return_value=fast),
+            ):
+                with patch.object(voice.tts, "synthesize", return_value=b"audio"):
+                    app = AppTest.from_file(Path(__file__).with_name("main.py")).run(
+                        timeout=10
+                    )
+                    app.chat_input[0].set_value(question).run(timeout=10)
+
+        self.assertEqual(list(app.exception), [])
+        run.assert_called_once_with(question)
+        self.assertEqual(app.session_state.transcript, question)
+        self.assertTrue(
+            any(
+                "Here are grounded Pokemon card options." in item.value
+                for item in app.markdown
+            )
         )
 
     def test_fixture_mode_renders_one_graph_result_and_source_label(self) -> None:

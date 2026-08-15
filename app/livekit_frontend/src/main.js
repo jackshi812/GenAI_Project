@@ -217,11 +217,11 @@ async function stopConversation() {
 
 function onRender(event) {
   config = event.detail.args;
-  Streamlit.setFrameHeight(430);
+  Streamlit.setFrameHeight(470);
 }
 
 elements.start.addEventListener("click", startConversation);
 elements.stop.addEventListener("click", stopConversation);
 Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, onRender);
 Streamlit.setComponentReady();
-Streamlit.setFrameHeight(430);
+Streamlit.setFrameHeight(470);
