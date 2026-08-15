@@ -114,7 +114,9 @@ class FastReplyTests(unittest.TestCase):
         )
         self.assertIsNone(reply.product)
         self.assertEqual(reply.citations, ())
-        self.assertIn("not seeing a reliable catalog match", reply.text)
+        self.assertIn("couldn’t find a reliable 2020 catalog match", reply.text)
+        self.assertEqual(reply.turn_kind, "web_fallback")
+        self.assertTrue(reply.live_followup_needed)
 
     def test_greeting_does_not_search_the_catalog(self) -> None:
         def fail_search(**_):
@@ -147,9 +149,21 @@ class FastReplyTests(unittest.TestCase):
 
         self.assertEqual(calls[0]["category"], "Grocery & Gourmet Food")
         self.assertIsNone(calls[0]["brand"])
-        self.assertEqual(reply.turn_kind, "no_match")
+        self.assertEqual(reply.turn_kind, "web_fallback")
         self.assertIsNone(reply.product)
         self.assertIn("under $20", reply.text)
+
+    def test_accented_pokemon_title_is_a_reliable_match(self) -> None:
+        reply = asyncio.run(
+            build_fast_reply(
+                "Can you find a Pokemon puzzle?",
+                search_fn=lambda **_: [
+                    _catalog_result(title="Pokémon 500 Piece Jigsaw Puzzle")
+                ],
+            )
+        )
+        self.assertIsNotNone(reply.product)
+        self.assertTrue(reply.live_followup_needed)
 
     def test_specific_product_automatically_checks_the_web(self) -> None:
         reply = asyncio.run(

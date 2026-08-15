@@ -101,11 +101,11 @@ class Conflict(_BaseModel):
 
 
 class ComparisonProduct(_BaseModel):
-    """A catalog result plus its optional matched live evidence."""
+    """A catalog/live comparison, including honest web-only fallback results."""
 
     model_config = _ConfigDict(strict=True, extra="forbid")
 
-    private: RagResult
+    private: RagResult | None
     live: WebResult | None
     conflicts: list[Conflict]
     match: MatchInfo | None

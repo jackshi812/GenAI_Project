@@ -115,6 +115,23 @@ def _degraded_answer(products: list[ComparisonProduct]) -> AnswerOutput:
     conflict is still spoken aloud."""
     top = products[0]
     r = top.private
+    if r is None and top.live is not None:
+        live = top.live
+        parts = [f"I found {_short_title(live.title)} in current web results."]
+        live_price = _numeric_price(live)
+        if live_price is not None:
+            parts.append(f"The listed price is ${live_price:.2f}.")
+        return AnswerOutput(
+            answer_text=" ".join(parts),
+            cited_doc_ids=[],
+            cited_urls=[live.url],
+        )
+    if r is None:
+        return AnswerOutput(
+            answer_text="I couldn’t confirm a grounded product for that request.",
+            cited_doc_ids=[],
+            cited_urls=[],
+        )
     parts = [f"I’d suggest starting with {_short_title(r.title)}."]
     if r.price_low is not None:
         parts.append(f"Catalog price ${r.price_low:.2f} in 2020.")
@@ -169,15 +186,18 @@ def _evidence_block(products: list[ComparisonProduct]) -> str:
     lines = []
     for i, p in enumerate(products):
         r = p.private
-        lines.append(
-            f"Product {i + 1} — PRIVATE (2020 catalog, doc_id={r.doc_id}): "
-            f"title={r.title!r}, price={r.price_low if r.price_low is not None else r.price!r}"
-        )
+        if r is not None:
+            lines.append(
+                f"Product {i + 1} — PRIVATE (2020 catalog, doc_id={r.doc_id}): "
+                f"title={r.title!r}, "
+                f"price={r.price_low if r.price_low is not None else r.price!r}"
+            )
         if p.live is not None:
             live = p.live
             snippet = (getattr(live, "snippet", None) or "")[:SNIPPET_CAP]
             lines.append(
-                f"  LIVE ({getattr(live, 'url', '')}): title={live.title!r}, "
+                f"  {'LIVE ONLY' if r is None else 'LIVE'} "
+                f"({getattr(live, 'url', '')}): title={live.title!r}, "
                 f"price={getattr(live, 'price', None)}, rating={getattr(live, 'rating', None)}, "
                 f"availability={getattr(live, 'availability', None)}, snippet={snippet!r}"
             )
@@ -192,7 +212,9 @@ def _evidence_block(products: list[ComparisonProduct]) -> str:
 
 def _build_citations(draft: AnswerOutput, products: list[ComparisonProduct]) -> list[Citation]:
     """Only cite evidence that actually exists in this run — never invent."""
-    valid_doc_ids = {p.private.doc_id for p in products}
+    valid_doc_ids = {
+        p.private.doc_id for p in products if p.private is not None
+    }
     valid_urls = {getattr(p.live, "url", None) for p in products if p.live is not None}
     citations = []
     for doc_id in draft.cited_doc_ids:
@@ -202,8 +224,15 @@ def _build_citations(draft: AnswerOutput, products: list[ComparisonProduct]) -> 
         if url in valid_urls:
             citations.append(Citation(kind="live", label=_domain(url), url=url))
     if not citations and products:
-        top = products[0].private
-        citations.append(Citation(kind="private", label=top.doc_id, url=None))
+        top = products[0]
+        if top.private is not None:
+            citations.append(
+                Citation(kind="private", label=top.private.doc_id, url=None)
+            )
+        elif top.live is not None:
+            citations.append(
+                Citation(kind="live", label=_domain(top.live.url), url=top.live.url)
+            )
     return citations
 
 

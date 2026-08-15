@@ -244,14 +244,19 @@ def web_search(query: str, num: int = 10) -> list[dict[str, Any]]:
             _CACHE.pop(cache_key, None)
 
     api_key = os.getenv("SERPER_API_KEY", "").strip()
+    origin = "recorded_fixture"
     if api_key:
         raw_response = _call_serper(query_text, result_limit, api_key)
-        if raw_response is None:
+        if raw_response is not None:
+            origin = "live_serper"
+        else:
             _log_event("live_fallback_to_fixture", query=normalized_query(query_text))
             raw_response = _load_fixture(query_text)
     else:
         raw_response = _load_fixture(query_text)
     results = normalize_response(raw_response or {}, result_limit)
+    for item in results:
+        item["origin"] = origin
     with _STATE_LOCK:
         _CACHE[cache_key] = (time.monotonic() + _cache_ttl(), results)
     return [dict(item) for item in results]

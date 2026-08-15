@@ -28,7 +28,7 @@ from app.livekit_component import (
     new_room_name,
     settings_from_env,
 )
-from contracts import AssistantResult, ComparisonProduct, StepEvent
+from contracts import AssistantResult, ComparisonProduct, RagResult, StepEvent
 from graph.build import run_graph
 from graph.fast_reply import FastReply, build_fast_reply
 from voice.stt import transcribe
@@ -55,20 +55,28 @@ def _render_product(
     with st.container(border=True):
         image_column, catalog_column, live_column = st.columns([1, 2, 2])
         with image_column:
-            st.image(product.private.image_url, width=80)
+            if product.private is not None:
+                st.image(product.private.image_url, width=80)
+            else:
+                st.markdown("### 🌐")
+                st.caption("Web result")
         with catalog_column:
             st.markdown("**Catalog (2020)**")
-            st.markdown(f"**{product.private.title}**")
-            price = _money(product.private.price_low)
-            if "price" in conflicts:
-                st.markdown(f":red[⚠ **Price: {price}**]")
+            if product.private is None:
+                st.info("No reliable catalog match")
+                st.caption("Showing current web products instead.")
             else:
-                st.markdown(f"**Price:** {price}")
-            if product.private.budget_fit == "partial":
-                st.caption(f"Starting at {price} — some variants exceed budget")
-            st.write(f"Brand: {product.private.brand or '—'}")
-            st.caption("Rating: — · no ratings in the 2020 catalog")
-            st.caption("Ingredients: not available in source data")
+                st.markdown(f"**{product.private.title}**")
+                price = _money(product.private.price_low)
+                if "price" in conflicts:
+                    st.markdown(f":red[⚠ **Price: {price}**]")
+                else:
+                    st.markdown(f"**Price:** {price}")
+                if product.private.budget_fit == "partial":
+                    st.caption(f"Starting at {price} — some variants exceed budget")
+                st.write(f"Brand: {product.private.brand or '—'}")
+                st.caption("Rating: — · no ratings in the 2020 catalog")
+                st.caption("Ingredients: not available in source data")
         with live_column:
             st.markdown("**Live**")
             if product.live is None:
@@ -138,9 +146,13 @@ def _render_evidence(result: AssistantResult, source_mode: str) -> None:
 
     with st.expander("Citations", expanded=True):
         st.markdown("**🔒 Private catalog**")
-        for citation in result.citations:
-            if citation.kind == "private":
-                st.markdown(f"- `private catalog` · `{citation.label}`")
+        private_citations = [
+            citation for citation in result.citations if citation.kind == "private"
+        ]
+        if not private_citations:
+            st.caption("No reliable private catalog source for this result.")
+        for citation in private_citations:
+            st.markdown(f"- `private catalog` · `{citation.label}`")
         st.markdown("**🌐 Live sources**")
         live_citations = [item for item in result.citations if item.kind == "live"]
         if not live_citations:
@@ -154,7 +166,16 @@ def _render_evidence(result: AssistantResult, source_mode: str) -> None:
 
     with st.expander("Match details", expanded=False):
         for product in result.products:
-            st.markdown(f"**{product.private.title}**")
+            if product.private is not None:
+                title = product.private.title
+            elif product.live is not None:
+                title = product.live.title
+            else:
+                title = "Unknown product"
+            st.markdown(f"**{title}**")
+            if product.private is None:
+                st.caption("Live-only fallback; no catalog comparison was possible.")
+                continue
             if product.match is None:
                 st.caption("No live match to evaluate.")
             else:
@@ -163,6 +184,47 @@ def _render_evidence(result: AssistantResult, source_mode: str) -> None:
                     f"{product.match.verdict}"
                 )
                 st.caption(product.match.reason)
+
+
+def _render_pending_fast(data: dict) -> None:
+    """Show fast catalog evidence while the full graph continues."""
+    st.subheader("Product result")
+    elapsed_ms = int(data.get("elapsed_ms") or 0)
+    product_data = data.get("product")
+    turn_kind = str(data.get("turn_kind") or "catalog")
+    live_pending = bool(data.get("live_followup_needed"))
+
+    if product_data:
+        product = RagResult.model_validate(product_data)
+        st.caption(f"2020 catalog match ready in {elapsed_ms} ms")
+        with st.container(border=True):
+            image_column, catalog_column, live_column = st.columns([1, 2, 2])
+            with image_column:
+                st.image(product.image_url, width=80)
+            with catalog_column:
+                st.markdown("**Catalog (2020)**")
+                st.markdown(f"**{product.title}**")
+                st.markdown(f"**Price:** {_money(product.price_low)}")
+                st.write(f"Brand: {product.brand or '—'}")
+                st.caption(f"Private document: {product.doc_id}")
+            with live_column:
+                st.markdown("**Live**")
+                if live_pending:
+                    st.info("Checking current products and prices…")
+                    st.caption("Keep the conversation open while this finishes.")
+                else:
+                    st.caption("Web comparison was not needed for this request.")
+        return
+
+    if live_pending:
+        st.info(
+            "No reliable 2020 catalog match was found. Checking current web "
+            "products instead…"
+        )
+    elif turn_kind == "conversation":
+        st.caption("No product lookup was needed for this conversational turn.")
+    else:
+        st.warning("No reliable product match was found.")
 
 
 st.set_page_config(page_title="Product Discovery Assistant", layout="wide")
@@ -181,6 +243,8 @@ if "assistant_result" not in st.session_state:
     st.session_state.assistant_result = None
 if "fast_reply" not in st.session_state:
     st.session_state.fast_reply = None
+if "pending_fast_reply" not in st.session_state:
+    st.session_state.pending_fast_reply = None
 if "livekit_room" not in st.session_state:
     st.session_state.livekit_room = new_room_name()
 if "livekit_identity" not in st.session_state:
@@ -200,17 +264,24 @@ with left:
         live_event = None
         st.error("Live voice setup is incomplete. Check the LiveKit configuration.")
 
-    if live_event and live_event.get("type") == "assistant_result":
-        try:
-            live_result = AssistantResult.model_validate(live_event.get("data"))
-            st.session_state.assistant_result = live_result
-            st.session_state.transcript = live_result.transcript
-            # Remote LiveKit audio is already played by the browser component.
-            st.session_state.answer_audio = None
-            st.session_state.answer_audio_text = None
-            st.session_state.fast_reply = None
-        except Exception:
-            st.warning("The live session returned an invalid result payload.")
+    if live_event:
+        if live_event.get("type") == "fast_reply":
+            fast_data = live_event.get("data") or {}
+            st.session_state.pending_fast_reply = fast_data
+            st.session_state.assistant_result = None
+            st.session_state.transcript = str(fast_data.get("transcript") or "")
+        elif live_event.get("type") == "assistant_result":
+            try:
+                live_result = AssistantResult.model_validate(live_event.get("data"))
+                st.session_state.assistant_result = live_result
+                st.session_state.pending_fast_reply = None
+                st.session_state.transcript = live_result.transcript
+                # Remote LiveKit audio is already played by the browser component.
+                st.session_state.answer_audio = None
+                st.session_state.answer_audio_text = None
+                st.session_state.fast_reply = None
+            except Exception:
+                st.warning("The live session returned an invalid result payload.")
 
     with st.expander("Record and send instead", expanded=False):
         st.caption("Fallback mode: transcription begins only after recording stops.")
@@ -298,6 +369,11 @@ if needs_result:
 
 result: AssistantResult | None = st.session_state.assistant_result
 if result is None:
+    pending_fast = st.session_state.pending_fast_reply
+    if pending_fast:
+        with right:
+            _render_pending_fast(pending_fast)
+        st.stop()
     with left:
         st.info("Start the conversation, allow microphone access, and begin speaking.")
         st.caption(f'Try asking: “{DEFAULT_TRANSCRIPT}”')

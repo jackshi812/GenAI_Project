@@ -20,6 +20,7 @@ import pyarrow.parquet as pq
 
 from catalog.search import search as catalog_search
 from contracts import Citation, RagResult
+from graph.relevance import GROCERY_TERMS, catalog_result_is_relevant, normalized_terms
 
 
 _LIVE_TERMS = re.compile(
@@ -96,7 +97,6 @@ _BROAD_PRODUCT_TERMS = {
     "toy",
     "toys",
 }
-_GROCERY_TERMS = {"food", "grocery", "snack"}
 _GREETING_PATTERNS = (
     re.compile(r"\bhow are you(?: doing)?\b", re.IGNORECASE),
     re.compile(r"^\s*(?:hi|hello|hey)(?:\b|[!.])", re.IGNORECASE),
@@ -148,7 +148,9 @@ class FastReply:
     citations: tuple[Citation, ...]
     elapsed_ms: int
     live_followup_needed: bool
-    turn_kind: Literal["conversation", "catalog", "no_match"] = "catalog"
+    turn_kind: Literal[
+        "conversation", "catalog", "web_fallback", "no_match"
+    ] = "catalog"
 
 
 def _words_to_number(value: str) -> float | None:
@@ -260,18 +262,7 @@ def _conversation_reply(transcript: str) -> str | None:
 
 
 def _query_terms(value: str) -> set[str]:
-    def normalize(term: str) -> str:
-        if term.endswith("ies") and len(term) > 4:
-            return f"{term[:-3]}y"
-        if term.endswith("s") and len(term) > 3:
-            return term[:-1]
-        return term
-
-    return {
-        normalize(term)
-        for term in re.findall(r"[a-z0-9]+", value.casefold())
-        if term not in _QUERY_STOPWORDS
-    }
+    return normalized_terms(value, _QUERY_STOPWORDS)
 
 
 def _is_specific_product(query: str, explicit_brand: str | None) -> bool:
@@ -282,21 +273,10 @@ def _is_specific_product(query: str, explicit_brand: str | None) -> bool:
 
 
 def _is_relevant(query: str, result: dict) -> bool:
-    query_terms = _query_terms(query)
-    title_terms = _query_terms(str(result.get("title") or ""))
-    if not query_terms:
-        return False
-    overlap = len(query_terms & title_terms)
-    coverage = overlap / len(query_terms)
-    similarity = float(result.get("similarity") or 0.0)
-    if query_terms & _GROCERY_TERMS and result.get("category") != (
-        "Grocery & Gourmet Food"
-    ):
-        return False
-    return (
-        coverage >= 0.8
-        or (coverage >= 0.6 and similarity >= 0.4)
-        or (overlap >= 1 and similarity >= 0.55)
+    return catalog_result_is_relevant(
+        query,
+        result,
+        stopwords=_QUERY_STOPWORDS,
     )
 
 
@@ -373,7 +353,7 @@ async def build_fast_reply(
     brand = extract_brand(transcript)
     category = (
         "Grocery & Gourmet Food"
-        if _query_terms(query) & _GROCERY_TERMS
+        if _query_terms(query) & GROCERY_TERMS
         else None
     )
     wants_live = bool(_LIVE_TERMS.search(transcript)) or _is_specific_product(
@@ -392,17 +372,24 @@ async def build_fast_reply(
         budget_phrase = (
             f" under ${budget_max:,.0f}" if budget_max is not None else ""
         )
-        text = (
-            f"I’m not seeing a reliable catalog match{budget_phrase}. "
-            "Try naming a specific product, and I can check current listings too."
-        )
+        if query == "product":
+            text = "I didn’t catch a product request. What would you like me to find?"
+            live_followup_needed = False
+            turn_kind = "no_match"
+        else:
+            text = (
+                f"I couldn’t find a reliable 2020 catalog match{budget_phrase}, "
+                "so I’m checking current web products instead."
+            )
+            live_followup_needed = True
+            turn_kind = "web_fallback"
         return FastReply(
             text=text,
             product=None,
             citations=(),
             elapsed_ms=int((time.perf_counter() - started) * 1_000),
-            live_followup_needed=False,
-            turn_kind="no_match",
+            live_followup_needed=live_followup_needed,
+            turn_kind=turn_kind,
         )
 
     product = RagResult.model_validate(relevant)

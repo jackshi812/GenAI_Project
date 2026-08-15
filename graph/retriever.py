@@ -11,6 +11,7 @@ from contracts import ComparisonProduct, Conflict, MatchInfo, RagResult, WebResu
 
 from graph.llm import get_llm, load_prompt
 from graph.matching import match_band, price_conflict, title_similarity, variant_guard
+from graph.relevance import catalog_result_is_relevant
 from graph.state import make_step, timer
 from graph.tools import clean_filters, eight_word_key
 
@@ -49,15 +50,20 @@ def make_retriever_node(tools):
         query = state["semantic_query"]  # never the raw transcript
         try:
             with timer() as t:
-                rag_results = await tools.rag_search(query, **filters)
-            rag_results = rag_results[:TOP_K_PRODUCTS]
+                raw_rag_results = await tools.rag_search(query, **filters)
+            rag_results = [
+                result
+                for result in raw_rag_results
+                if catalog_result_is_relevant(query, result)
+            ][:TOP_K_PRODUCTS]
             steps.append(
                 make_step(
                     "retriever",
                     "rag.search",
                     "completed",
                     t.ms,
-                    f"query={query!r} filters={filters} -> {len(rag_results)} results",
+                    f"query={query!r} filters={filters} -> {len(rag_results)} "
+                    f"reliable of {len(raw_rag_results)} retrieved",
                     t.started_at,
                 )
             )
@@ -66,6 +72,60 @@ def make_retriever_node(tools):
             steps.append(
                 make_step("retriever", "rag.search", "error", 0, f"rag.search failed: {exc}")
             )
+
+        # No trustworthy private result: search the user's product phrase
+        # directly instead of pretending a semantically nearby catalog item is
+        # relevant. These rows are explicitly live-only in the UI/contract.
+        if not rag_results:
+            try:
+                with timer() as t:
+                    direct_hits = await tools.web_search(query, num=5)
+                direct_hits = _filter_live_budget(direct_hits, filters)[:TOP_K_PRODUCTS]
+                steps.append(
+                    make_step(
+                        "retriever",
+                        "web.search",
+                        "completed",
+                        t.ms,
+                        f"direct fallback query={query!r} -> {len(direct_hits)} results",
+                        t.started_at,
+                    )
+                )
+            except Exception as exc:
+                direct_hits = []
+                steps.append(
+                    make_step(
+                        "retriever",
+                        "web.search",
+                        "error",
+                        0,
+                        f"direct web fallback failed for {query!r}: {exc}",
+                    )
+                )
+            products = [
+                ComparisonProduct(
+                    private=None,
+                    live=hit,
+                    conflicts=[],
+                    match=None,
+                )
+                for hit in direct_hits
+            ]
+            steps.append(
+                make_step(
+                    "retriever",
+                    None,
+                    "completed",
+                    0,
+                    f"web-only fallback: {len(products)} products",
+                )
+            )
+            return {
+                "rag_results": [],
+                "web_results": direct_hits,
+                "products": products,
+                "steps": steps,
+            }
 
         # --- Step 2: one live query per product (D-06) -------------------
         web_by_product: list[list[WebResult]] = []
@@ -128,6 +188,27 @@ def make_retriever_node(tools):
         }
 
     return retriever_node
+
+
+def _filter_live_budget(
+    results: list[WebResult], filters: dict
+) -> list[WebResult]:
+    """Apply numeric budgets to live-only fallback rows without guessing."""
+    price_max = filters.get("price_max")
+    price_min = filters.get("price_min")
+    if price_max is None and price_min is None:
+        return results
+    kept = []
+    for result in results:
+        price = _numeric_price(result)
+        if price is None:
+            continue
+        if price_max is not None and price > float(price_max):
+            continue
+        if price_min is not None and price < float(price_min):
+            continue
+        kept.append(result)
+    return kept
 
 
 async def _reconcile_one(private: RagResult, candidates: list[WebResult]) -> ComparisonProduct:

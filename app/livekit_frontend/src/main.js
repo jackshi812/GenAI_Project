@@ -27,6 +27,7 @@ let connectedRoom = null;
 let startedAt = null;
 let timerHandle = null;
 let lastResultId = null;
+let lastFastId = null;
 let readyForNewTurn = false;
 const userSegments = new Map();
 
@@ -98,6 +99,11 @@ function handleProductEvent(payload, _participant, _kind, topic) {
       elements.answer.textContent = envelope.data.answer_text;
       elements.answerPanel.classList.remove("hidden");
       readyForNewTurn = true;
+      const fastId = `${envelope.data.transcript}:${envelope.data.answer_text}`;
+      if (fastId !== lastFastId) {
+        lastFastId = fastId;
+        Streamlit.setComponentValue(envelope);
+      }
       setStatus(
         envelope.data.live_followup_needed
           ? "Speaking now; checking current web evidence in the background…"
