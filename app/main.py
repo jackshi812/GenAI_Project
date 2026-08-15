@@ -57,6 +57,10 @@ def _render_product(
         with image_column:
             if product.private is not None:
                 st.image(product.private.image_url, width=80)
+                st.caption("2020 catalog image")
+            elif product.live is not None and product.live.image_url:
+                st.image(product.live.image_url, width=80)
+                st.caption("Live listing image")
             else:
                 st.markdown("### 🌐")
                 st.caption("Web result")
@@ -87,6 +91,9 @@ def _render_product(
                     st.info(notice)
                 st.caption(detail)
             else:
+                if product.private is not None and product.live.image_url:
+                    st.image(product.live.image_url, width=80)
+                    st.caption("Live listing image")
                 st.markdown(f"**{product.live.title}**")
                 price = _money(product.live.price)
                 if "price" in conflicts:

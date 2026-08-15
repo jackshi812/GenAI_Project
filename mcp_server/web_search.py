@@ -119,6 +119,20 @@ def _float_or_none(value: Any) -> float | None:
     return low
 
 
+def _image_url_or_none(value: Any) -> str | None:
+    """Keep only absolute HTTP(S) image URLs returned by Serper."""
+    url = str(value or "").strip()
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return None
+    return url
+
+
 def normalize_response(raw_response: dict[str, Any], num: int) -> list[dict[str, Any]]:
     """Normalize live and recorded Serper shopping responses identically."""
     results: list[dict[str, Any]] = []
@@ -155,6 +169,7 @@ def normalize_response(raw_response: dict[str, Any], num: int) -> list[dict[str,
                 "snippet": snippet,
                 "price": _float_or_none(entry.get("price")),
                 "availability": delivery or None,
+                "image_url": _image_url_or_none(entry.get("imageUrl")),
                 "rating": _float_or_none(entry.get("rating")),
             }
         )

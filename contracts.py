@@ -71,6 +71,9 @@ class WebResult(_BaseModel):
     price: float | str | None = None
     availability: str | None = None
 
+    # Additive UI metadata supplied by Serper Shopping when available.
+    image_url: str | None = None
+
     # Additive: live search is the only rating source in this project.
     rating: float | None = None
 

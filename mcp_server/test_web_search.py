@@ -11,7 +11,11 @@ from mcp_server.web_search import FIXTURE_PATH, normalize_response
 GOOGLE_SHOPPING_URL = "https://www.google.com/search?ibp=oshop&q=Eco+Cleaner&udm=28"
 
 
-def _shopping_result(source: str, link: str = GOOGLE_SHOPPING_URL) -> dict:
+def _shopping_result(
+    source: str,
+    link: str = GOOGLE_SHOPPING_URL,
+    image_url: str = "https://images.example.com/cleaner.jpg",
+) -> dict:
     return {
         "shopping": [
             {
@@ -19,12 +23,28 @@ def _shopping_result(source: str, link: str = GOOGLE_SHOPPING_URL) -> dict:
                 "source": source,
                 "link": link,
                 "price": "$12.99",
+                "imageUrl": image_url,
             }
         ]
     }
 
 
 class NormalizeResponseTests(unittest.TestCase):
+    def test_serper_image_url_is_preserved(self) -> None:
+        result = normalize_response(_shopping_result("Walmart"), num=1)
+
+        self.assertEqual(
+            result[0]["image_url"], "https://images.example.com/cleaner.jpg"
+        )
+
+    def test_non_http_image_url_is_dropped(self) -> None:
+        result = normalize_response(
+            _shopping_result("Walmart", image_url="file:///tmp/product.jpg"),
+            num=1,
+        )
+
+        self.assertIsNone(result[0]["image_url"])
+
     def test_google_shopping_links_fall_back_to_retailer_search(self) -> None:
         cases = {
             "Amazon.com": "https://www.amazon.com/s?k=Eco+Cleaner",
