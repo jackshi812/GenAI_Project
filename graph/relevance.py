@@ -8,7 +8,16 @@ from collections.abc import Collection
 from typing import Any
 
 
-GROCERY_TERMS = {"food", "grocery", "snack"}
+GROCERY_TERMS = {
+    "broccoli",
+    "food",
+    "fruit",
+    "grocery",
+    "lettuce",
+    "produce",
+    "snack",
+    "vegetable",
+}
 
 
 def normalized_terms(value: str, stopwords: Collection[str] = ()) -> set[str]:

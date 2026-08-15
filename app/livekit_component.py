@@ -91,9 +91,10 @@ def live_voice(
     settings: LiveKitSettings,
     room_name: str,
     identity: str,
+    external_turn: dict[str, Any] | None = None,
     key: str = "livekit-voice",
 ) -> dict[str, Any] | None:
-    """Render the persistent browser session and return completed graph events."""
+    """Render the chat/voice session and return browser-originated turn events."""
     token = create_room_token(
         settings,
         room_name=room_name,
@@ -105,6 +106,7 @@ def live_voice(
         room_name=room_name,
         identity=identity,
         local=settings.local,
+        external_turn=external_turn,
         key=key,
         default=None,
     )

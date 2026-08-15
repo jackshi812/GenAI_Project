@@ -5,15 +5,14 @@ from __future__ import annotations
 import os
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
 from contracts import AssistantResult
+import app.livekit_component as livekit_component
 import graph.build
-import graph.fast_reply
 import voice.tts
-from graph.fast_reply import FastReply
 
 
 DEFAULT_TRANSCRIPT = (
@@ -23,19 +22,22 @@ DEFAULT_TRANSCRIPT = (
 
 
 class GraphResultSeamTests(unittest.TestCase):
-    def test_initial_load_waits_for_a_recording(self) -> None:
-        with patch.object(graph.build, "run_graph") as run:
-            app = AppTest.from_file(Path(__file__).with_name("main.py")).run(
-                timeout=10
-            )
+    def test_initial_load_waits_for_a_chat_message(self) -> None:
+        with patch.object(livekit_component, "live_voice", return_value=None):
+            with patch.object(graph.build, "run_graph") as run:
+                app = AppTest.from_file(Path(__file__).with_name("main.py")).run(
+                    timeout=10
+                )
 
         self.assertEqual(list(app.exception), [])
         self.assertEqual(run.call_count, 0)
         self.assertTrue(
-            any("Start the conversation" in item.value for item in app.info)
+            any(
+                item.value == "Chat with your store assistant"
+                for item in app.subheader
+            )
         )
-        self.assertEqual(len(app.text_input), 1)
-        self.assertTrue(any(button.label == "Send message" for button in app.button))
+        self.assertEqual(len(app.text_input), 0)
 
     def test_typed_message_runs_the_same_grounded_result_path(self) -> None:
         question = "Find me Pokemon cards under $25"
@@ -47,41 +49,30 @@ class GraphResultSeamTests(unittest.TestCase):
             steps=[],
             citations=[],
         )
-        fast = FastReply(
-            text="I’m checking Pokemon card options under $25.",
-            product=None,
-            citations=(),
-            elapsed_ms=20,
-            live_followup_needed=True,
-            turn_kind="web_fallback",
-        )
+        request_id = "typed-test-1"
+        typed_event = {
+            "type": "typed_message",
+            "event_id": request_id,
+            "data": {"transcript": question, "request_id": request_id},
+        }
 
-        with patch.object(graph.build, "run_graph", return_value=result) as run:
-            with patch.object(
-                graph.fast_reply,
-                "build_fast_reply",
-                new=AsyncMock(return_value=fast),
-            ):
+        with patch.object(
+            livekit_component, "live_voice", return_value=typed_event
+        ):
+            with patch.object(graph.build, "run_graph", return_value=result) as run:
                 with patch.object(voice.tts, "synthesize", return_value=b"audio"):
                     app = AppTest.from_file(Path(__file__).with_name("main.py")).run(
                         timeout=10
                     )
-                    app.text_input[0].set_value(question)
-                    next(
-                        button
-                        for button in app.button
-                        if button.label == "Send message"
-                    ).click().run(timeout=10)
 
         self.assertEqual(list(app.exception), [])
         run.assert_called_once_with(question)
         self.assertEqual(app.session_state.transcript, question)
-        self.assertTrue(
-            any(
-                "Here are grounded Pokemon card options." in item.value
-                for item in app.markdown
-            )
+        self.assertEqual(
+            app.session_state.external_turn["answer_text"],
+            "Here are grounded Pokemon card options.",
         )
+        self.assertEqual(app.session_state.external_turn["request_id"], request_id)
 
     def test_fixture_mode_renders_one_graph_result_and_source_label(self) -> None:
         result = AssistantResult(
@@ -92,25 +83,35 @@ class GraphResultSeamTests(unittest.TestCase):
             steps=[],
             citations=[],
         )
+        typed_event = {
+            "type": "typed_message",
+            "event_id": "fixture-typed-1",
+            "data": {
+                "transcript": DEFAULT_TRANSCRIPT,
+                "request_id": "fixture-typed-1",
+            },
+        }
 
         with patch.dict(os.environ, {"TOOL_MODE": "fixture"}, clear=False):
-            with patch.object(graph.build, "run_graph", return_value=result) as run:
-                app = AppTest.from_file(Path(__file__).with_name("main.py")).run(
-                    timeout=10
-                )
-                app.session_state.transcript = DEFAULT_TRANSCRIPT
-                app.run(timeout=10)
+            with patch.object(
+                livekit_component, "live_voice", return_value=typed_event
+            ):
+                with patch.object(graph.build, "run_graph", return_value=result) as run:
+                    with patch.object(voice.tts, "synthesize", return_value=b"audio"):
+                        app = AppTest.from_file(Path(__file__).with_name("main.py")).run(
+                            timeout=10
+                        )
 
         self.assertEqual(list(app.exception), [])
         self.assertEqual(run.call_count, 1)
         self.assertTrue(
             any(
-                item.value == "Source mode: Fixture graph · Recorded data"
+                item.value == "Fixture graph · Recorded data"
                 for item in app.caption
             )
         )
-        self.assertTrue(
-            any("Grounded answer." in item.value for item in app.markdown)
+        self.assertEqual(
+            app.session_state.external_turn["answer_text"], "Grounded answer."
         )
 
 

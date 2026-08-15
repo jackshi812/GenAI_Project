@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from livekit import api
 
-from app.livekit_component import create_room_token, settings_from_env
+from app.livekit_component import create_room_token, live_voice, settings_from_env
 
 
 class LiveKitComponentTests(unittest.TestCase):
@@ -41,6 +41,29 @@ class LiveKitComponentTests(unittest.TestCase):
         self.assertEqual(
             claims.room_config.agents[0].agent_name,
             "product-discovery",
+        )
+
+    def test_completed_typed_turn_is_sent_back_into_the_chat_component(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = settings_from_env()
+        external_turn = {
+            "request_id": "typed-1",
+            "transcript": "Find me a puzzle",
+            "answer_text": "I found a grounded option.",
+        }
+
+        with patch(
+            "app.livekit_component._voice_component", return_value=None
+        ) as component:
+            live_voice(
+                settings=settings,
+                room_name="product-room",
+                identity="shopper-test",
+                external_turn=external_turn,
+            )
+
+        self.assertEqual(
+            component.call_args.kwargs["external_turn"], external_turn
         )
 
 

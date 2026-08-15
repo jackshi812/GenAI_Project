@@ -110,6 +110,22 @@ class InteractiveGraphTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tools.web_calls, [])
         self.assertIn("thanks for asking", result.answer_text)
 
+    async def test_greeting_before_grocery_request_still_uses_product_tools(self) -> None:
+        tools = _Tools()
+
+        result = await _run(
+            "Hello, I need vegetables like broccoli and lettuce",
+            tools,
+            graph_mode="interactive",
+        )
+
+        self.assertEqual(tools.rag_calls[0][0], "vegetables broccoli lettuce")
+        self.assertEqual(
+            tools.rag_calls[0][1]["category"], "Grocery & Gourmet Food"
+        )
+        self.assertEqual(len(tools.web_calls), 1)
+        self.assertNotIn("thanks for asking", result.answer_text)
+
     async def test_hazardous_mixing_request_stops_before_tools(self) -> None:
         tools = _Tools()
 

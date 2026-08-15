@@ -7,6 +7,7 @@ import unittest
 
 from graph.fast_reply import (
     build_fast_reply,
+    conversation_reply,
     extract_brand,
     extract_budget_max,
     semantic_query,
@@ -52,6 +53,12 @@ class FastReplyTests(unittest.TestCase):
         self.assertEqual(
             semantic_query("Please find me a current Nerf blaster under $20"),
             "Nerf blaster",
+        )
+
+    def test_semantic_query_removes_greeting_from_shopping_request(self) -> None:
+        self.assertEqual(
+            semantic_query("Hello, I need vegetables like broccoli and lettuce"),
+            "vegetables broccoli lettuce",
         )
 
     def test_brand_filter_requires_an_explicit_brand_cue(self) -> None:
@@ -128,6 +135,22 @@ class FastReplyTests(unittest.TestCase):
         self.assertEqual(reply.turn_kind, "conversation")
         self.assertIn("doing well", reply.text)
         self.assertIsNone(reply.product)
+
+    def test_greeting_does_not_override_a_shopping_request(self) -> None:
+        calls = []
+
+        def fake_search(**kwargs):
+            calls.append(kwargs)
+            return []
+
+        request = "Hello, I need vegetables like broccoli and lettuce"
+        reply = asyncio.run(build_fast_reply(request, search_fn=fake_search))
+
+        self.assertIsNone(conversation_reply(request))
+        self.assertEqual(calls[0]["query"], "vegetables broccoli lettuce")
+        self.assertEqual(calls[0]["category"], "Grocery & Gourmet Food")
+        self.assertEqual(reply.turn_kind, "web_fallback")
+        self.assertNotIn("doing well", reply.text)
 
     def test_groceries_rejects_a_semantically_similar_toy(self) -> None:
         calls = []

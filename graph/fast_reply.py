@@ -48,6 +48,7 @@ _BRAND_SOURCE = Path(__file__).resolve().parents[1] / "catalog" / "products.parq
 _QUERY_STOPWORDS = {
     "a",
     "an",
+    "and",
     "buy",
     "bucks",
     "buck",
@@ -58,6 +59,7 @@ _QUERY_STOPWORDS = {
     "get",
     "i",
     "is",
+    "like",
     "me",
     "not",
     "of",
@@ -104,6 +106,12 @@ _GREETING_PATTERNS = (
     re.compile(r"\bwhat(?:'s| is) up\b", re.IGNORECASE),
 )
 _THANKS_PATTERN = re.compile(r"\b(?:thanks|thank you)\b", re.IGNORECASE)
+_SHOPPING_REQUEST_PATTERN = re.compile(
+    r"\b(?:i\s+(?:need|want|would like)|(?:i(?:'m| am)\s+)?looking for|"
+    r"find|show|recommend|compare|buy|shop|shopping|product|price|cost|"
+    r"budget|under|available|availability|rating|review)\b",
+    re.IGNORECASE,
+)
 
 _ONES = {
     "zero": 0,
@@ -198,7 +206,13 @@ def extract_budget_max(transcript: str) -> float | None:
 
 def semantic_query(transcript: str) -> str:
     """Remove routing/budget language while retaining the requested product."""
-    query = _BUDGET_CLAUSE.sub(" ", transcript)
+    query = re.sub(
+        r"^\s*(?:hi|hello|hey|good\s+(?:morning|afternoon|evening))\b[\s,.!:-]*",
+        "",
+        transcript,
+        flags=re.IGNORECASE,
+    )
+    query = _BUDGET_CLAUSE.sub(" ", query)
     query = _CURRENCY_PATTERN.sub(" ", query)
     query = _LIVE_TERMS.sub(" ", query)
     query = re.sub(
@@ -254,9 +268,13 @@ def extract_brand(transcript: str) -> str | None:
 
 
 def _conversation_reply(transcript: str) -> str | None:
-    if any(pattern.search(transcript) for pattern in _GREETING_PATTERNS):
+    has_shopping_request = bool(_SHOPPING_REQUEST_PATTERN.search(transcript))
+    if (
+        not has_shopping_request
+        and any(pattern.search(transcript) for pattern in _GREETING_PATTERNS)
+    ):
         return "I’m doing well—thanks for asking! What are you shopping for today?"
-    if _THANKS_PATTERN.search(transcript):
+    if not has_shopping_request and _THANKS_PATTERN.search(transcript):
         return "You’re welcome! Is there another product you’d like me to check?"
     return None
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import os
 import sys
 from pathlib import Path
@@ -30,8 +28,6 @@ from app.livekit_component import (
 )
 from contracts import AssistantResult, ComparisonProduct, RagResult, StepEvent
 from graph.build import run_graph
-from graph.fast_reply import FastReply, build_fast_reply
-from voice.stt import transcribe
 from voice.tts import cap_for_speech, synthesize
 
 DEFAULT_TRANSCRIPT = (
@@ -238,25 +234,7 @@ st.set_page_config(page_title="Product Discovery Assistant", layout="wide")
 st.markdown(
     """
     <style>
-    div[data-testid="stAudioInput"] button {
-        min-width: 4.5rem !important;
-        min-height: 4.5rem !important;
-        border-radius: 1rem !important;
-        transform: scale(1.08);
-        transform-origin: left center;
-    }
-    div[data-testid="stAudioInput"] {
-        padding: 0.35rem 0 0.55rem;
-    }
-    div[data-testid="stTextInput"] input {
-        min-height: 3.25rem;
-        font-size: 1rem;
-    }
-    div[data-testid="stFormSubmitButton"] button {
-        min-height: 3.1rem;
-        font-size: 1rem;
-        font-weight: 700;
-    }
+    .block-container { padding-top: 2.4rem; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -267,20 +245,20 @@ st.caption(
     "live evidence."
 )
 
-if "transcript" not in st.session_state:
-    st.session_state.transcript = ""
-if "audio_digest" not in st.session_state:
-    st.session_state.audio_digest = None
-if "answer_audio" not in st.session_state:
-    st.session_state.answer_audio = None
-if "answer_audio_text" not in st.session_state:
-    st.session_state.answer_audio_text = None
-if "assistant_result" not in st.session_state:
-    st.session_state.assistant_result = None
-if "fast_reply" not in st.session_state:
-    st.session_state.fast_reply = None
-if "pending_fast_reply" not in st.session_state:
-    st.session_state.pending_fast_reply = None
+_SESSION_DEFAULTS = {
+    "transcript": "",
+    "answer_audio": None,
+    "answer_audio_text": None,
+    "assistant_result": None,
+    "pending_fast_reply": None,
+    "external_turn": None,
+    "last_component_event_id": None,
+    "active_request_id": None,
+    "input_source": None,
+}
+for state_key, default_value in _SESSION_DEFAULTS.items():
+    if state_key not in st.session_state:
+        st.session_state[state_key] = default_value
 if "livekit_room" not in st.session_state:
     st.session_state.livekit_room = new_room_name()
 if "livekit_identity" not in st.session_state:
@@ -289,57 +267,53 @@ if "livekit_identity" not in st.session_state:
 left, right = st.columns([1, 1.4])
 new_transcript = False
 with left:
-    st.subheader("Talk or type to your store assistant")
-
-    with st.container(border=True):
-        st.markdown("#### Type a message")
-        st.caption("Use the same grounded product search without turning on your mic.")
-        with st.form("typed_message_form", clear_on_submit=True):
-            typed_message = st.text_input(
-                "Message",
-                placeholder=(
-                    "Ask for a product, budget, current price, or recommendation…"
-                ),
-                label_visibility="collapsed",
-                key="typed_product_question",
-            )
-            typed_submitted = st.form_submit_button(
-                "Send message",
-                type="primary",
-                use_container_width=True,
-            )
-
-    if typed_submitted:
-        message = typed_message.strip()
-        if message:
-            st.session_state.transcript = message
-            st.session_state.assistant_result = None
-            st.session_state.pending_fast_reply = None
-            st.session_state.answer_audio = None
-            st.session_state.answer_audio_text = None
-            st.session_state.fast_reply = None
-            new_transcript = True
-        else:
-            st.warning("Type a message before sending.")
-
-    st.markdown("#### Or speak live")
+    st.subheader("Chat with your store assistant")
     try:
         live_event = live_voice(
             settings=settings_from_env(),
             room_name=st.session_state.livekit_room,
             identity=st.session_state.livekit_identity,
+            external_turn=st.session_state.external_turn,
         )
     except Exception:
         live_event = None
         st.error("Live voice setup is incomplete. Check the LiveKit configuration.")
 
-    if live_event:
-        if live_event.get("type") == "fast_reply":
+    event_id = str((live_event or {}).get("event_id") or "")
+    is_new_event = bool(live_event) and (
+        not event_id or event_id != st.session_state.last_component_event_id
+    )
+    if is_new_event:
+        if event_id:
+            st.session_state.last_component_event_id = event_id
+        event_type = live_event.get("type")
+        if event_type == "typed_message":
+            typed_data = live_event.get("data") or {}
+            message = str(typed_data.get("transcript") or "").strip()
+            if message:
+                st.session_state.transcript = message
+                st.session_state.assistant_result = None
+                st.session_state.pending_fast_reply = None
+                st.session_state.answer_audio = None
+                st.session_state.answer_audio_text = None
+                st.session_state.active_request_id = str(
+                    typed_data.get("request_id") or event_id
+                )
+                st.session_state.input_source = "typed"
+                new_transcript = True
+        elif event_type == "restart_chat":
+            for state_key, default_value in _SESSION_DEFAULTS.items():
+                st.session_state[state_key] = default_value
+            st.session_state.livekit_room = new_room_name()
+            st.session_state.livekit_identity = new_identity()
+            st.rerun()
+        elif event_type == "fast_reply":
             fast_data = live_event.get("data") or {}
             st.session_state.pending_fast_reply = fast_data
             st.session_state.assistant_result = None
             st.session_state.transcript = str(fast_data.get("transcript") or "")
-        elif live_event.get("type") == "assistant_result":
+            st.session_state.input_source = "voice"
+        elif event_type == "assistant_result":
             try:
                 live_result = AssistantResult.model_validate(live_event.get("data"))
                 st.session_state.assistant_result = live_result
@@ -348,79 +322,20 @@ with left:
                 # Remote LiveKit audio is already played by the browser component.
                 st.session_state.answer_audio = None
                 st.session_state.answer_audio_text = None
-                st.session_state.fast_reply = None
+                st.session_state.input_source = "voice"
             except Exception:
                 st.warning("The live session returned an invalid result payload.")
 
-    with st.expander("Record and send instead", expanded=False):
-        st.caption("Fallback mode: transcription begins only after recording stops.")
-        recording = st.audio_input("Record a product question")
-    if recording is not None:
-        audio_bytes = recording.getvalue()
-        digest = hashlib.sha256(audio_bytes).hexdigest()
-        if digest != st.session_state.audio_digest:
-            try:
-                with st.spinner("Transcribing…"):
-                    transcript = transcribe(audio_bytes, filename=recording.name)
-                if transcript:
-                    st.session_state.answer_audio = None
-                    st.session_state.answer_audio_text = None
-                    st.session_state.fast_reply = None
-                    st.session_state.transcript = transcript
-                    # Mark the recording as consumed as soon as ASR succeeds;
-                    # a later graph or TTS error must not retranscribe it.
-                    st.session_state.audio_digest = digest
-                    new_transcript = True
-                else:
-                    st.warning("No speech was detected. Please record again.")
-            except Exception:
-                st.error("Speech-to-text failed. Please check the OpenAI setup and retry.")
-
-    if new_transcript:
-        try:
-            with st.spinner("Finding a catalog match…"):
-                fast_reply: FastReply = asyncio.run(
-                    build_fast_reply(st.session_state.transcript)
-                )
-                st.session_state.fast_reply = fast_reply
-                st.session_state.answer_audio = synthesize(
-                    fast_reply.text,
-                    model=os.getenv("FAST_TTS_MODEL", "tts-1"),
-                )
-                st.session_state.answer_audio_text = fast_reply.text
-
-            # Streamlit sends these elements to the browser before the slower
-            # graph call below completes, so speech can start while live search
-            # and reconciliation continue.
-            st.markdown("**Transcript**")
-            st.write(st.session_state.transcript)
-            st.markdown("**Assistant**")
-            st.markdown(fast_reply.text.replace("$", r"\$"))
-            if st.session_state.answer_audio:
-                st.audio(
-                    st.session_state.answer_audio,
-                    format="audio/mp3",
-                    autoplay=True,
-                )
-            if fast_reply.live_followup_needed:
-                st.info("Checking today’s web listing and comparing sources…")
-            else:
-                st.info("Preparing the full product details…")
-        except Exception:
-            # Preserve the original full-graph path as a usable fallback.
-            st.session_state.fast_reply = None
-            st.session_state.answer_audio = None
-            st.session_state.answer_audio_text = None
-            st.warning("The quick spoken reply was unavailable; finishing the full search.")
-
 previous_result = st.session_state.assistant_result
 needs_result = (
-    bool(st.session_state.transcript)
+    new_transcript
+    and bool(st.session_state.transcript)
     and (
         previous_result is None
         or previous_result.transcript != st.session_state.transcript
     )
 )
+sync_component = False
 if needs_result:
     try:
         with st.spinner("Checking grounded product sources…"):
@@ -429,12 +344,36 @@ if needs_result:
             st.session_state.assistant_result = graph_result.model_copy(
                 update={"answer_text": spoken_answer}
             )
+        try:
+            st.session_state.answer_audio = synthesize(
+                spoken_answer,
+                model=os.getenv("FAST_TTS_MODEL", "tts-1"),
+            )
+            st.session_state.answer_audio_text = spoken_answer
+        except Exception:
+            st.session_state.answer_audio = None
+            st.session_state.answer_audio_text = None
+        st.session_state.external_turn = {
+            "request_id": st.session_state.active_request_id,
+            "transcript": st.session_state.transcript,
+            "answer_text": spoken_answer,
+        }
+        sync_component = True
     except Exception:
         st.error("Product discovery failed. Please check the graph and tool configuration.")
-        new_transcript = False
-        if previous_result is None:
-            st.stop()
-        st.session_state.transcript = previous_result.transcript
+        st.session_state.external_turn = {
+            "request_id": st.session_state.active_request_id,
+            "transcript": st.session_state.transcript,
+            "answer_text": (
+                "I’m sorry—I couldn’t finish that product search. "
+                "Please try again in a moment."
+            ),
+        }
+        st.session_state.transcript = ""
+        sync_component = True
+
+if sync_component:
+    st.rerun()
 
 result: AssistantResult | None = st.session_state.assistant_result
 if result is None:
@@ -443,41 +382,24 @@ if result is None:
         with right:
             _render_pending_fast(pending_fast)
         st.stop()
-    with left:
-        st.info("Start the conversation, allow microphone access, and begin speaking.")
-        st.caption(f'Try asking: “{DEFAULT_TRANSCRIPT}”')
     with right:
         st.subheader("What you’ll get")
         st.markdown("**Private catalog evidence** · prices from the 2020 dataset")
         st.markdown("**Web comparison** · clearly labeled live or recorded results")
         st.markdown("**Grounded answer** · conflicts, citations, and spoken playback")
+        st.caption(f'Try asking: “{DEFAULT_TRANSCRIPT}”')
     st.stop()
 
 source_mode = source_mode_label(result)
 
-if new_transcript and st.session_state.answer_audio is None:
-    try:
-        with st.spinner("Creating spoken answer…"):
-            st.session_state.answer_audio = synthesize(result.answer_text)
-            st.session_state.answer_audio_text = result.answer_text
-    except Exception:
-        st.error("Text-to-speech failed. The written answer is still available.")
-
 with left:
-    st.markdown("**Transcript**")
-    st.write(result.transcript)
-    st.caption(f"Source mode: {source_mode}")
-    st.markdown("**Detailed answer**")
-    st.markdown(result.answer_text.replace("$", r"\$"))
     if st.session_state.answer_audio:
-        st.caption("Spoken answer")
-        st.write(st.session_state.answer_audio_text)
-        # A browser may block first autoplay; the visible player remains the replay control.
-        st.audio(
-            st.session_state.answer_audio,
-            format="audio/mp3",
-            autoplay=new_transcript and st.session_state.fast_reply is None,
-        )
+        with st.expander("Replay the latest spoken answer", expanded=False):
+            st.audio(
+                st.session_state.answer_audio,
+                format="audio/mp3",
+                autoplay=False,
+            )
 
 with right:
     _render_evidence(result, source_mode)

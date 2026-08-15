@@ -3,41 +3,59 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Live voice session</title>
-    <script type="module" crossorigin src="./assets/index-B25_h9bj.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DTOLmN0O.css">
+    <title>Store assistant chat</title>
+    <script type="module" crossorigin src="./assets/index-DFcp3saf.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-Tk44du-u.css">
   </head>
   <body>
-    <main class="voice-card">
-      <div class="topline">
-        <span id="state-dot" class="state-dot"></span>
-        <span id="status">Ready for a live conversation</span>
-        <span id="timer">00:00</span>
-      </div>
-
-      <div id="visualizer" class="visualizer" aria-hidden="true">
-        <span></span><span></span><span></span><span></span><span></span>
-        <span></span><span></span><span></span><span></span><span></span>
-        <span></span><span></span><span></span><span></span><span></span>
-      </div>
-
-      <section class="transcript-panel" aria-live="polite">
-        <div class="eyebrow">You</div>
-        <div id="transcript" class="transcript muted">
-          Your words will appear here while you speak.
+    <main class="chat-card">
+      <header class="chat-header">
+        <div class="assistant-identity">
+          <div class="assistant-avatar" aria-hidden="true">S</div>
+          <div>
+            <div class="assistant-name">Store assistant</div>
+            <div class="session-state">
+              <span id="state-dot" class="state-dot"></span>
+              <span id="status">Ready to help</span>
+              <span id="timer">00:00</span>
+            </div>
+          </div>
         </div>
-      </section>
+        <button id="restart" class="restart" type="button">Restart chat</button>
+      </header>
 
-      <section id="answer-panel" class="answer-panel hidden" aria-live="polite">
-        <div class="eyebrow">Store assistant</div>
-        <div id="answer" class="answer"></div>
-      </section>
+      <section id="messages" class="messages" aria-live="polite"></section>
+
+      <div id="voice-state" class="voice-state">
+        <div id="visualizer" class="visualizer" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <span id="voice-hint">Type a message or start the microphone.</span>
+      </div>
 
       <div id="error" class="error hidden"></div>
-      <div class="controls">
-        <button id="start" class="primary">Start conversation</button>
-        <button id="stop" class="secondary hidden">End conversation</button>
-      </div>
+
+      <form id="composer" class="composer">
+        <button id="start" class="mic-button" type="button" aria-label="Start microphone">
+          <span class="mic-icon" aria-hidden="true">●</span>
+          <span>Start mic</span>
+        </button>
+        <button id="stop" class="mic-button stop hidden" type="button" aria-label="Stop microphone">
+          <span class="stop-icon" aria-hidden="true">■</span>
+          <span>Stop mic</span>
+        </button>
+        <label class="message-input-wrap">
+          <span class="sr-only">Message your store assistant</span>
+          <input
+            id="typed-input"
+            type="text"
+            autocomplete="off"
+            placeholder="Ask for a product, price, or recommendation…"
+          />
+        </label>
+        <button id="send" class="send-button" type="submit">Send</button>
+      </form>
       <audio id="agent-audio" autoplay></audio>
     </main>
   </body>
