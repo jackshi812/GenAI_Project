@@ -261,6 +261,11 @@ def _conversation_reply(transcript: str) -> str | None:
     return None
 
 
+def conversation_reply(transcript: str) -> str | None:
+    """Return a fixed social reply when a turn is not a shopping request."""
+    return _conversation_reply(transcript)
+
+
 def _query_terms(value: str) -> set[str]:
     return normalized_terms(value, _QUERY_STOPWORDS)
 
@@ -270,6 +275,13 @@ def _is_specific_product(query: str, explicit_brand: str | None) -> bool:
     if explicit_brand or any(term.isdigit() for term in terms):
         return True
     return len(terms) >= 2 and not terms.issubset(_BROAD_PRODUCT_TERMS)
+
+
+def should_search_live(transcript: str) -> bool:
+    """Route named/current product requests to one live shopping lookup."""
+    query = semantic_query(transcript)
+    brand = extract_brand(transcript)
+    return bool(_LIVE_TERMS.search(transcript)) or _is_specific_product(query, brand)
 
 
 def _is_relevant(query: str, result: dict) -> bool:
@@ -356,9 +368,7 @@ async def build_fast_reply(
         if _query_terms(query) & GROCERY_TERMS
         else None
     )
-    wants_live = bool(_LIVE_TERMS.search(transcript)) or _is_specific_product(
-        query, brand
-    )
+    wants_live = should_search_live(transcript)
     raw_results = await asyncio.to_thread(
         search_fn,
         query=query,

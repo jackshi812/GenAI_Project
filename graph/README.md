@@ -1,4 +1,4 @@
-# graph/ — LangGraph orchestration (Ginger)
+# graph/ — LangGraph orchestration
 
 Four async nodes wired in sequence, one public entry point:
 
@@ -10,10 +10,10 @@ START -> router -> planner -> retriever -> answerer -> END
 
 | Node | File | Does | Prompt |
 |---|---|---|---|
-| Router | `graph/nodes.py :: router_node` | transcript → task, numeric budget, category/brand/material, safety flags | `prompts/router.md` |
-| Planner | `graph/nodes.py :: planner_node` | source selection (deterministic currency-keyword escalation first, LLM may add but never veto), rag filters, semantic query | `prompts/planner.md` |
+| Router | `graph/interactive.py` or `graph/nodes.py` | transcript → task, numeric budget, category/brand/material, safety flags | `prompts/router.md` in `llm` mode |
+| Planner | `graph/interactive.py` or `graph/nodes.py` | source selection, RAG filters, semantic query | `prompts/planner.md` in `llm` mode |
 | Retriever | `graph/retriever.py` | `rag.search`, per-product `web.search` (D-06), three-stage match (D-01), price reconciliation (D-02), no-match honesty (D-03) | `prompts/match_confirm.md` (stage C only) |
-| Answerer/Critic | `graph/answer.py` | ≤30-word cited spoken answer; critic grounding check, one retry then degrade | `prompts/answerer.md`, `prompts/critic.md` |
+| Answerer/Critic | `graph/interactive.py` or `graph/answer.py` | ≤30-word cited spoken answer; deterministic citation validation or prompt-based critic | `prompts/answerer.md`, `prompts/critic.md` in `llm` mode |
 
 Supporting modules: `graph/llm.py` (env-swappable provider + prompt loader),
 `graph/state.py` (state schema, graph-internal models, `make_step`),
@@ -32,6 +32,12 @@ boundary; the Retriever converts it into an empty result plus a truthful
 `status: error` step — private evidence is preserved and nothing is
 invented.
 
+Graph execution is also env-driven. `GRAPH_MODE=interactive` is the default
+for the app: it runs the same required LangGraph stages, limits live retrieval
+to one web request, and composes an evidence-only answer without sequential
+LLM waits. `GRAPH_MODE=llm` selects the original prompt-heavy router, planner,
+answerer, critic, and optional match-confirm calls for audit comparisons.
+
 ## Verify
 
 ```bash
@@ -40,6 +46,7 @@ python -m unittest discover -s graph -p 'test_*.py'   # all unit tests
 python -m graph.llm                           # env swappability + key check
 TOOL_MODE=fixture python -m graph.smoke       # recorded end-to-end
 TOOL_MODE=live python -m graph.smoke          # real MCP server end-to-end
+GRAPH_MODE=llm python -m graph.smoke          # slower prompt/critic audit path
 ```
 
 Live-mode `rag.search` requires Austin's Chroma index

@@ -31,7 +31,7 @@ class MatchDecision(BaseModel):
     reason: str = Field(description="One sentence explaining the verdict")
 
 
-def make_retriever_node(tools):
+def make_retriever_node(tools, *, interactive: bool = False):
     """Build the retriever node around an injected ToolClient (fixture today,
     MCP in Phase 2 — same interface, no node changes)."""
 
@@ -40,8 +40,19 @@ def make_retriever_node(tools):
 
         # Safety stop or explicit private opt-out: no tools, no products.
         if not state.get("use_private", True):
+            reason = (
+                "conversation"
+                if state.get("turn_kind") == "conversation"
+                else "safety stop"
+            )
             steps.append(
-                make_step("retriever", None, "skipped", 0, "Retrieval skipped (safety stop).")
+                make_step(
+                    "retriever",
+                    None,
+                    "skipped",
+                    0,
+                    f"Retrieval skipped ({reason}).",
+                )
             )
             return {"rag_results": [], "web_results": [], "products": [], "steps": steps}
 
@@ -56,6 +67,11 @@ def make_retriever_node(tools):
                 for result in raw_rag_results
                 if catalog_result_is_relevant(query, result)
             ][:TOP_K_PRODUCTS]
+            if interactive and state.get("use_live"):
+                # One catalog candidate and one Serper request keep the
+                # interactive graph bounded. Remaining slots may show honest
+                # live-only alternatives from that same response.
+                rag_results = rag_results[:1]
             steps.append(
                 make_step(
                     "retriever",
@@ -130,7 +146,10 @@ def make_retriever_node(tools):
         # --- Step 2: one live query per product (D-06) -------------------
         web_by_product: list[list[WebResult]] = []
         if state.get("use_live") and rag_results:
-            for r in rag_results:
+            for index, r in enumerate(rag_results):
+                if interactive and index >= 1:
+                    web_by_product.append([])
+                    continue
                 live_query = eight_word_key(r.title)  # full titles match nothing
                 try:
                     with timer() as t:
@@ -164,7 +183,13 @@ def make_retriever_node(tools):
         with timer() as t:
             products = []
             for r, candidates in zip(rag_results, web_by_product):
-                products.append(await _reconcile_one(r, candidates))
+                products.append(
+                    await _reconcile_one(
+                        r,
+                        candidates,
+                        allow_llm_confirmation=not interactive,
+                    )
+                )
         n_conflicts = sum(len(p.conflicts) for p in products)
         n_matched = sum(1 for p in products if p.live is not None)
         steps.append(
@@ -180,6 +205,24 @@ def make_retriever_node(tools):
         )
 
         all_web = [h for hits in web_by_product for h in hits]
+        if interactive:
+            used_urls = {
+                product.live.url for product in products if product.live is not None
+            }
+            for hit in all_web:
+                if len(products) >= TOP_K_PRODUCTS:
+                    break
+                if hit.url in used_urls:
+                    continue
+                products.append(
+                    ComparisonProduct(
+                        private=None,
+                        live=hit,
+                        conflicts=[],
+                        match=None,
+                    )
+                )
+                used_urls.add(hit.url)
         return {
             "rag_results": rag_results,
             "web_results": all_web,
@@ -211,7 +254,12 @@ def _filter_live_budget(
     return kept
 
 
-async def _reconcile_one(private: RagResult, candidates: list[WebResult]) -> ComparisonProduct:
+async def _reconcile_one(
+    private: RagResult,
+    candidates: list[WebResult],
+    *,
+    allow_llm_confirmation: bool = True,
+) -> ComparisonProduct:
     """Three-stage match (D-01) + price reconciliation (D-02) for one product.
 
     A product with no confirmed live match is still returned with live=None,
@@ -267,6 +315,21 @@ async def _reconcile_one(private: RagResult, candidates: list[WebResult]) -> Com
             best,
             best_score,
             f"auto-accepted: similarity {best_score:.2f} above 0.60 with matching variant tokens",
+        )
+
+    if not allow_llm_confirmation:
+        return ComparisonProduct(
+            private=private,
+            live=None,
+            conflicts=[],
+            match=MatchInfo(
+                similarity=round(best_score, 3),
+                verdict="unsure",
+                reason=(
+                    "Interactive deterministic check could not confirm the "
+                    "variant; candidate is shown separately as live evidence."
+                ),
+            ),
         )
 
     # Stage C: one LLM confirmation call for the ambiguous candidates only.

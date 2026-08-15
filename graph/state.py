@@ -20,6 +20,8 @@ class GraphState(TypedDict, total=False):
     intent: str
     constraints: dict
     safety_flags: list[str]
+    turn_kind: str
+    conversation_answer: str
     plan: str
     semantic_query: str
     filters: dict

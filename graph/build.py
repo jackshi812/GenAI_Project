@@ -18,22 +18,38 @@ from langgraph.graph import END, START, StateGraph
 from contracts import AssistantResult
 
 from graph.answer import answerer_node
+from graph.interactive import (
+    interactive_answerer_node,
+    interactive_planner_node,
+    interactive_router_node,
+)
 from graph.nodes import planner_node, router_node
 from graph.retriever import make_retriever_node
 from graph.state import GraphState
 from graph.tools_stub import FixtureTools
 
 TOOL_MODES = ("live", "fixture")
+GRAPH_MODES = ("interactive", "llm")
 
 
-def build_graph(tools):
+def build_graph(tools, *, mode: str | None = None):
     """Assemble router -> planner -> retriever -> answerer around an injected
     ToolClient. Compiled graph; nodes are async."""
+    selected_mode = (mode or os.getenv("GRAPH_MODE", "interactive")).strip().lower()
+    if selected_mode not in GRAPH_MODES:
+        raise ValueError(
+            f"Unsupported GRAPH_MODE={selected_mode!r}; supported values are "
+            f"{GRAPH_MODES[0]!r} and {GRAPH_MODES[1]!r}."
+        )
+    interactive = selected_mode == "interactive"
     g = StateGraph(GraphState)
-    g.add_node("router", router_node)
-    g.add_node("planner", planner_node)
-    g.add_node("retriever", make_retriever_node(tools))
-    g.add_node("answerer", answerer_node)
+    g.add_node("router", interactive_router_node if interactive else router_node)
+    g.add_node("planner", interactive_planner_node if interactive else planner_node)
+    g.add_node("retriever", make_retriever_node(tools, interactive=interactive))
+    g.add_node(
+        "answerer",
+        interactive_answerer_node if interactive else answerer_node,
+    )
     g.add_edge(START, "router")
     g.add_edge("router", "planner")
     g.add_edge("planner", "retriever")
@@ -62,7 +78,12 @@ def _select_tools():
     )
 
 
-async def _run(transcript: str, tools=None) -> AssistantResult:
+async def _run(
+    transcript: str,
+    tools=None,
+    *,
+    graph_mode: str | None = None,
+) -> AssistantResult:
     """One async runner for the whole turn. The single sync/async boundary is
     run_graph; nothing else calls asyncio.run. One call means one tool-client
     lifecycle — in live mode, one MCP server process and one session serving
@@ -70,7 +91,7 @@ async def _run(transcript: str, tools=None) -> AssistantResult:
     if tools is None:
         tools = _select_tools()
     async with tools:
-        graph = build_graph(tools)
+        graph = build_graph(tools, mode=graph_mode)
         final = await graph.ainvoke({"transcript": transcript, "steps": []})
     return _to_result(final)
 

@@ -423,7 +423,7 @@ needs_result = (
 )
 if needs_result:
     try:
-        with st.spinner("Running the product discovery graph…"):
+        with st.spinner("Checking grounded product sources…"):
             graph_result = run_graph(st.session_state.transcript)
             spoken_answer = cap_for_speech(graph_result.answer_text)
             st.session_state.assistant_result = graph_result.model_copy(
