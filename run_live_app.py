@@ -10,11 +10,29 @@ import sys
 import time
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-
 ROOT = Path(__file__).resolve().parent
-load_dotenv(ROOT / ".env")
+VENV_ROOT = ROOT / ".venv"
+
+
+def _project_venv_python() -> Path | None:
+    """Return this repository's virtualenv interpreter when available."""
+    candidates = (
+        VENV_ROOT / "bin" / "python",
+        VENV_ROOT / "Scripts" / "python.exe",
+    )
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def _ensure_project_venv() -> None:
+    """Re-run the launcher inside .venv when invoked by a system Python."""
+    venv_python = _project_venv_python()
+    if venv_python is None or Path(sys.prefix).resolve() == VENV_ROOT.resolve():
+        return
+    print(f"Using project environment: {VENV_ROOT}", flush=True)
+    os.execv(
+        str(venv_python),
+        [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]],
+    )
 
 
 def _cloud_configured() -> bool:
@@ -26,6 +44,12 @@ def _cloud_configured() -> bool:
 
 
 def main() -> None:
+    _ensure_project_venv()
+
+    # Import project dependencies only after selecting the project interpreter.
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
     cloud = _cloud_configured()
     commands: list[list[str]] = []
     if not cloud:
