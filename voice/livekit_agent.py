@@ -1,4 +1,4 @@
-"""LiveKit streaming voice entry point with a grounded fast-first response.
+"""LiveKit streaming voice entry point with one grounded canonical response.
 
 Run locally without LiveKit Cloud credentials:
 
@@ -16,7 +16,6 @@ import inspect
 import json
 import logging
 import os
-import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -36,18 +35,25 @@ from livekit.agents.llm import ChatContext, ChatMessage
 from livekit.plugins import openai, silero
 
 from contracts import AssistantResult, Citation, ComparisonProduct
+from graph.answer import _degraded_answer
 from graph.build import _run as run_full_graph
 from graph.fast_reply import (
     FastReply,
     build_fast_reply,
+    contextualize_followup,
+    extract_budget_bounds,
     extract_budget_max,
     semantic_query,
     warm_fast_reply,
 )
-from graph.retriever import _numeric_price
+from graph.preferences import clears_budget, is_contextual_followup_candidate
+from graph.recommendation import build_top_recommendation
+from graph.retriever import RAG_CANDIDATE_K, TOP_K_PRODUCTS, _numeric_price
+from graph.response_style import is_delegated_choice, is_rejection_followup, web_recommendation
 from graph.state import make_step, timer
 from graph.tools import eight_word_key
 from graph.tools_mcp import MCPTools
+from voice.tts import cap_for_speech
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -55,6 +61,7 @@ load_dotenv(REPO_ROOT / ".env")
 
 logger = logging.getLogger("product-discovery-livekit")
 EventSink = Callable[[str, dict[str, Any]], Awaitable[None] | None]
+PROGRESS_CUE = "Give me a moment while I pull up the best matches."
 
 
 def _money(value: float | str | None) -> str | None:
@@ -80,21 +87,21 @@ def compose_live_followup(result: AssistantResult) -> str | None:
         if product.live is None:
             continue
         if product.private is None:
-            live_price = _money(_numeric_price(product.live))
-            price_phrase = f" at {live_price}" if live_price else ""
-            return (
-                f"I found {_short_title(product.live.title)} in current web "
-                f"results{price_phrase}. The source is on screen."
+            return web_recommendation(
+                product.live,
+                query=result.transcript,
+                budget_max=extract_budget_max(result.transcript),
+                numeric_price=_numeric_price(product.live),
             )
         private_price = _money(product.private.price_low)
         live_price = _money(_numeric_price(product.live))
         source = _source_phrase(product)
         if private_price and live_price:
             return (
-                f"I finished checking. The {source} is {live_price}, compared with "
-                f"{private_price} in the 2020 catalog. The sources are on screen."
+                f"The live check is complete. The {source} is {live_price}, "
+                f"compared with {private_price} in the 2020 catalog."
             )
-        return f"I finished checking and confirmed a {source}. The sources are on screen."
+        return f"I finished the live check and confirmed a {source}."
 
     web_steps = [step for step in result.steps if step.tool == "web.search"]
     if web_steps and any(step.status == "completed" for step in web_steps):
@@ -118,8 +125,57 @@ async def _emit(sink: EventSink | None, event_type: str, data: dict[str, Any]) -
         await outcome
 
 
+async def _queue_speech_for_text_sync(
+    session: Any,
+    text: str,
+    **say_kwargs: Any,
+) -> Any:
+    """Queue TTS and briefly wait for its first audible-frame transition.
+
+    LiveKit changes the agent state to ``speaking`` when the first audio frame
+    is forwarded. Waiting for that transition keeps the matching chat text
+    from racing ahead of playback. The bounded timeout preserves a responsive
+    text fallback if browser audio or TTS startup is unavailable.
+    """
+    started = asyncio.Event()
+
+    def on_state_changed(event: Any) -> None:
+        if getattr(event, "new_state", None) == "speaking":
+            started.set()
+
+    subscribed = False
+    try:
+        session.on("agent_state_changed", on_state_changed)
+        subscribed = True
+    except (AttributeError, TypeError):
+        pass
+
+    try:
+        handle = session.say(text, **say_kwargs)
+        if subscribed and not started.is_set():
+            try:
+                timeout = max(
+                    0.0,
+                    float(os.getenv("VOICE_TEXT_SYNC_TIMEOUT_S", "1.25")),
+                )
+            except ValueError:
+                timeout = 1.25
+            if timeout:
+                try:
+                    await asyncio.wait_for(started.wait(), timeout=timeout)
+                except TimeoutError:
+                    pass
+        return handle
+    finally:
+        if subscribed:
+            try:
+                session.off("agent_state_changed", on_state_changed)
+            except (AttributeError, TypeError):
+                pass
+
+
 class ProductDiscoveryAgent(Agent):
-    """Speak private evidence quickly, then finish the full graph in background."""
+    """Preview fast evidence, then display and speak one completed graph answer."""
 
     def __init__(self, *, event_sink: EventSink | None = None) -> None:
         super().__init__(
@@ -130,129 +186,318 @@ class ProductDiscoveryAgent(Agent):
         )
         self._event_sink = event_sink
         self._tasks: set[asyncio.Task] = set()
+        self._pending_budget_max: float | None = None
+        self._pending_budget_min: float | None = None
+        self._active_budget_max: float | None = None
+        self._active_budget_min: float | None = None
+        self._last_result: AssistantResult | None = None
+        self._last_answer_text = ""
+        self._pending_refinement = False
+        self._shopping_context = None
 
     async def on_user_turn_completed(
         self, turn_ctx: ChatContext, new_message: ChatMessage
     ) -> None:
         del turn_ctx
-        transcript = new_message.text_content.strip()
-        if not transcript:
+        display_transcript = new_message.text_content.strip()
+        if not display_transcript:
             return
+
+        feedback_turn = is_rejection_followup(display_transcript)
+        delegated_turn = is_delegated_choice(display_transcript)
+        contextual_turn = is_contextual_followup_candidate(
+            display_transcript,
+            self._shopping_context,
+        )
+        remembered_budget = (
+            self._active_budget_max
+            if feedback_turn or delegated_turn or contextual_turn
+            else self._pending_budget_max
+        )
+        remembered_budget_min = (
+            self._active_budget_min
+            if feedback_turn or delegated_turn or contextual_turn
+            else self._pending_budget_min
+        )
+        search_transcript = contextualize_followup(
+            display_transcript,
+            remembered_budget,
+            remembered_budget_min,
+        )
 
         for pending in tuple(self._tasks):
             pending.cancel()
 
-        fast = await build_fast_reply(transcript)
+        use_prior_context = feedback_turn or delegated_turn or contextual_turn
+        dialogue_context: dict[str, Any] = {}
+        if use_prior_context:
+            dialogue_context.update(
+                {
+                    "budget_max": self._active_budget_max,
+                    "budget_min": self._active_budget_min,
+                    "rejected_previous": self._pending_refinement,
+                    "shopping_context": self._shopping_context,
+                    "previous_answer": self._last_answer_text,
+                }
+            )
+        if use_prior_context and self._last_result is not None:
+            dialogue_context.update(
+                {
+                    "products": list(self._last_result.products),
+                    "citations": list(self._last_result.citations),
+                    "previous_request": self._last_result.transcript,
+                    "avoid_categories": sorted(
+                        {
+                            product.private.category
+                            for product in self._last_result.products
+                            if product.private is not None
+                            and product.private.category
+                        }
+                    )
+                    if self._pending_refinement
+                    else [],
+                }
+            )
+        fast_reply_task = asyncio.create_task(
+            build_fast_reply(
+                search_transcript,
+                dialogue_context=dialogue_context,
+                allow_dialogue_llm=False,
+            ),
+            name="fast-product-discovery-reply",
+        )
+        progress_speech = None
+        try:
+            try:
+                progress_speech = await _queue_speech_for_text_sync(
+                    self.session,
+                    PROGRESS_CUE,
+                    add_to_chat_ctx=False,
+                )
+            except RuntimeError:
+                # A participant can leave after committing a transcript but before
+                # the progress cue is scheduled. The grounded turn may still finish.
+                pass
+            await _emit(
+                self._event_sink,
+                "turn_started",
+                {
+                    "transcript": display_transcript,
+                    "answer_text": PROGRESS_CUE,
+                    "turn_kind": "thinking",
+                    "live_followup_needed": False,
+                    "transient": True,
+                },
+            )
+            fast = await fast_reply_task
+        except BaseException:
+            if not fast_reply_task.done():
+                fast_reply_task.cancel()
+            await asyncio.gather(fast_reply_task, return_exceptions=True)
+            raise
+        if fast.resolved_transcript:
+            search_transcript = fast.resolved_transcript
+        if fast.shopping_context is not None:
+            self._shopping_context = fast.shopping_context
+            # Keep the graph's context anchored to the state from before this
+            # utterance. The full graph parses the same turn again; passing the
+            # fast parser's updated profile as "previous" state applies the
+            # preference twice and can misclassify a clear update as unchanged.
+        parsed_budget_min, parsed_budget_max = extract_budget_bounds(
+            search_transcript
+        )
+        if fast.turn_kind == "clarification":
+            self._pending_refinement = False
+            if parsed_budget_max is not None:
+                self._pending_budget_min = parsed_budget_min
+                self._pending_budget_max = parsed_budget_max
+        elif fast.turn_kind == "refinement":
+            self._pending_refinement = True
+            self._pending_budget_min = self._active_budget_min
+            self._pending_budget_max = self._active_budget_max
+        else:
+            self._pending_refinement = False
+            self._pending_budget_min = None
+            self._pending_budget_max = None
+            if clears_budget(search_transcript):
+                self._active_budget_min = None
+                self._active_budget_max = None
+            elif parsed_budget_max is not None:
+                self._active_budget_min = parsed_budget_min
+                self._active_budget_max = parsed_budget_max
         await _emit(
             self._event_sink,
             "fast_reply",
             {
-                "transcript": transcript,
+                "transcript": display_transcript,
                 "answer_text": fast.text,
                 "elapsed_ms": fast.elapsed_ms,
                 "live_followup_needed": fast.live_followup_needed,
                 "turn_kind": fast.turn_kind,
+                "decision_source": fast.decision_source,
+                "shopping_context": (
+                    fast.shopping_context.model_dump(mode="json")
+                    if fast.shopping_context is not None
+                    else None
+                ),
                 "ttfa_target_ms": int(os.getenv("VOICE_TTFA_TARGET_MS", "3000")),
                 "product": fast.product.model_dump(mode="json") if fast.product else None,
                 "citations": [item.model_dump(mode="json") for item in fast.citations],
             },
         )
+        if fast.product is not None and fast.turn_kind != "selection":
+            fast_products = [
+                ComparisonProduct(
+                    private=fast.product,
+                    live=None,
+                    conflicts=[],
+                    match=None,
+                )
+            ]
+            fast_state = _recommendation_state(search_transcript, fast_products)
+            self._last_result = AssistantResult(
+                transcript=display_transcript,
+                plan="Fast grounded catalog result.",
+                answer_text=_degraded_answer(fast_products, fast_state).answer_text,
+                products=fast_products,
+                steps=[],
+                citations=list(fast.citations),
+                top_recommendation=build_top_recommendation(
+                    fast_products, fast_state
+                ),
+                shopping_context=fast.shopping_context,
+            )
 
-        first_speech = self.session.say(fast.text)
         task = asyncio.create_task(
-            self._finish_full_turn(transcript, fast, first_speech),
+            self._finish_full_turn(
+                display_transcript,
+                search_transcript,
+                fast,
+                dialogue_context,
+                progress_speech,
+            ),
             name="full-product-discovery-turn",
         )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
         # No LLM is configured on this session, so returning after scheduling
-        # the grounded speech suppresses any second/default assistant reply.
+        # suppresses LiveKit's default reply. The task commits exactly one
+        # answer to both the chat and TTS after grounded evidence is complete.
 
-    async def _finish_full_turn(self, transcript, fast: FastReply, first_speech) -> None:
+    async def _finish_full_turn(
+        self,
+        display_transcript: str,
+        search_transcript: str,
+        fast: FastReply,
+        dialogue_context: dict[str, Any],
+        progress_speech: Any | None,
+    ) -> None:
         try:
-            quick_web_emitted = False
+            graph_context = dict(dialogue_context)
             if fast.live_followup_needed:
-                quick_result = await _quick_web_result(transcript, fast)
-                await _emit(
-                    self._event_sink,
-                    "assistant_result",
-                    quick_result.model_dump(mode="json"),
-                )
-                quick_followup = compose_live_followup(quick_result)
-                if quick_followup:
-                    quick_speech = asyncio.create_task(
-                        self._speak_after(first_speech, quick_followup),
-                        name="quick-web-followup-speech",
+                # Routing is metadata. Never append implementation language to
+                # the shopper's utterance and then ask the graph to parse it.
+                graph_context["force_live"] = True
+            result = await run_full_graph(
+                search_transcript,
+                dialogue_context=graph_context,
+            )
+            if result.transcript != display_transcript:
+                result = result.model_copy(update={"transcript": display_transcript})
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # The fast result is already grounded catalog evidence. It becomes
+            # the one canonical response only when the complete graph fails.
+            logger.exception("background product-discovery graph failed")
+            retained = (
+                self._last_result
+                if fast.turn_kind in {"refinement", "selection"}
+                else None
+            )
+            fallback_products = list(retained.products) if retained else []
+            fallback_citations = list(retained.citations) if retained else []
+            if not fallback_products and fast.product is not None:
+                fallback_products = [
+                    ComparisonProduct(
+                        private=fast.product,
+                        live=None,
+                        conflicts=[],
+                        match=None,
                     )
-                    self._tasks.add(quick_speech)
-                    quick_speech.add_done_callback(self._tasks.discard)
-                quick_web_emitted = True
+                ]
+                fallback_citations = list(fast.citations)
+            result = AssistantResult(
+                transcript=display_transcript,
+                plan="Full graph unavailable; using the grounded fast result.",
+                answer_text=(
+                    _degraded_answer(
+                        fallback_products,
+                        _recommendation_state(
+                            search_transcript,
+                            fallback_products,
+                        ),
+                    ).answer_text
+                    if fallback_products
+                    else fast.text
+                ),
+                products=fallback_products,
+                steps=[],
+                citations=fallback_citations,
+                top_recommendation=(
+                    build_top_recommendation(
+                        fallback_products,
+                        _recommendation_state(
+                            search_transcript,
+                            fallback_products,
+                        ),
+                    )
+                    if fallback_products
+                    else None
+                ),
+                shopping_context=fast.shopping_context,
+            )
 
-            if fast.turn_kind in {"conversation", "no_match"}:
-                result = AssistantResult(
-                    transcript=transcript,
-                    plan=(
-                        "Conversational response; no product tools needed."
-                        if fast.turn_kind == "conversation"
-                        else "No reliable catalog match; retrieval stopped."
-                    ),
-                    answer_text=fast.text,
-                    products=[],
-                    steps=[],
-                    citations=[],
+        try:
+            spoken_answer = cap_for_speech(result.answer_text)
+            if result.answer_text != spoken_answer:
+                result = result.model_copy(
+                    update={"answer_text": spoken_answer}
                 )
-            else:
-                graph_transcript = transcript
-                if fast.live_followup_needed and not re.search(
-                    r"\b(?:current|today|now|latest|live|available|availability|rating|review)\b",
-                    transcript,
-                    re.IGNORECASE,
-                ):
-                    graph_transcript = (
-                        f"{transcript} Compare current web price and availability."
-                    )
-                result = await run_full_graph(graph_transcript)
-                if result.transcript != transcript:
-                    result = result.model_copy(update={"transcript": transcript})
-            if fast.turn_kind in {"conversation", "no_match"}:
-                await first_speech.wait_for_playout()
+            if result.products and fast.turn_kind != "refinement":
+                self._last_result = result
+            self._last_answer_text = result.answer_text
+            if result.shopping_context is not None:
+                self._shopping_context = result.shopping_context
+            if progress_speech is not None:
+                try:
+                    await progress_speech.wait_for_playout()
+                except Exception:
+                    # Progress audio is best-effort and must never suppress the
+                    # grounded final answer.
+                    pass
+            try:
+                await _queue_speech_for_text_sync(
+                    self.session,
+                    spoken_answer,
+                )
+            except RuntimeError:
+                # The browser may have ended the room while the background
+                # graph was finishing. The completed text can still be shown.
+                pass
             await _emit(
                 self._event_sink,
                 "assistant_result",
                 result.model_dump(mode="json"),
             )
-            followup = (
-                compose_live_followup(result)
-                if fast.live_followup_needed and not quick_web_emitted
-                else None
-            )
-            if followup:
-                await first_speech.wait_for_playout()
-                try:
-                    self.session.say(followup)
-                except RuntimeError:
-                    # The browser may have ended the room while the background
-                    # graph was finishing. The completed result was still
-                    # emitted when the participant remained connected.
-                    return
         except asyncio.CancelledError:
             raise
         except Exception:
             # Do not expose transcripts, evidence, credentials, or third-party
-            # snippets in logs. The fast grounded answer remains valid.
-            logger.exception("background product-discovery graph failed")
-
-    async def _speak_after(self, first_speech, text: str) -> None:
-        try:
-            await first_speech.wait_for_playout()
-            self.session.say(text)
-        except (asyncio.CancelledError, RuntimeError):
-            return
-
-
-def _short_title(title: str, limit: int = 8) -> str:
-    return " ".join(str(title).split()[:limit]).rstrip(",.;:-")
+            # snippets in logs. If publishing fails, speech is withheld so the
+            # screen and audio cannot silently diverge.
+            logger.exception("canonical product-discovery response failed")
 
 
 async def _quick_web_result(transcript: str, fast: FastReply) -> AssistantResult:
@@ -262,20 +507,24 @@ async def _quick_web_result(transcript: str, fast: FastReply) -> AssistantResult
         if fast.product is not None
         else semantic_query(transcript)
     )
+    budget_min, budget_max = extract_budget_bounds(transcript)
     steps = []
     try:
         async with MCPTools() as tools:
             with timer() as measured:
-                hits = await tools.web_search(query, num=5)
-        budget_max = extract_budget_max(transcript)
+                hits = await tools.web_search(query, num=RAG_CANDIDATE_K)
         if budget_max is not None:
             hits = [
                 hit
                 for hit in hits
                 if _numeric_price(hit) is not None
+                and (
+                    budget_min is None
+                    or _numeric_price(hit) >= budget_min
+                )
                 and _numeric_price(hit) <= budget_max
             ]
-        hits = hits[:3]
+        hits = hits[:TOP_K_PRODUCTS]
         steps.append(
             make_step(
                 "retriever",
@@ -300,6 +549,13 @@ async def _quick_web_result(transcript: str, fast: FastReply) -> AssistantResult
 
     products = []
     citations = list(fast.citations)
+    shown_hits = hits[
+        : TOP_K_PRODUCTS - 1 if fast.product is not None else TOP_K_PRODUCTS
+    ]
+    products.extend(
+        ComparisonProduct(private=None, live=hit, conflicts=[], match=None)
+        for hit in shown_hits
+    )
     if fast.product is not None:
         products.append(
             ComparisonProduct(
@@ -309,30 +565,18 @@ async def _quick_web_result(transcript: str, fast: FastReply) -> AssistantResult
                 match=None,
             )
         )
-    shown_hits = hits[: max(0, 3 - len(products))]
-    products.extend(
-        ComparisonProduct(private=None, live=hit, conflicts=[], match=None)
-        for hit in shown_hits
-    )
     citations.extend(
         Citation(kind="live", label=_domain(hit.url), url=hit.url)
         for hit in shown_hits
     )
 
-    if shown_hits:
-        price = _money(_numeric_price(shown_hits[0]))
-        price_phrase = f" at {price}" if price else ""
-        answer = (
-            f"I found {_short_title(shown_hits[0].title)} in current web results"
-            f"{price_phrase}."
-        )
-    elif fast.product is not None:
-        answer = (
-            "The catalog match is ready, but the preliminary web search did "
-            "not return a current product."
-        )
-    else:
-        answer = "I couldn’t find a current web product that fits that request."
+    recommendation_state = _recommendation_state(transcript, products)
+    top_recommendation = build_top_recommendation(products, recommendation_state)
+    answer = (
+        _degraded_answer(products, recommendation_state).answer_text
+        if products
+        else "I couldn’t find a current web product that fits that request."
+    )
 
     return AssistantResult(
         transcript=transcript,
@@ -344,7 +588,26 @@ async def _quick_web_result(transcript: str, fast: FastReply) -> AssistantResult
         products=products,
         steps=steps,
         citations=citations,
+        top_recommendation=top_recommendation,
     )
+
+
+def _recommendation_state(
+    transcript: str,
+    products: list[ComparisonProduct],
+) -> dict[str, Any]:
+    budget_min, budget_max = extract_budget_bounds(transcript)
+    query = semantic_query(transcript)
+    return {
+        "transcript": transcript,
+        "intent": query,
+        "semantic_query": query,
+        "constraints": {
+            "budget_min": budget_min,
+            "budget_max": budget_max,
+        },
+        "products": products,
+    }
 
 
 def _domain(url: str) -> str:

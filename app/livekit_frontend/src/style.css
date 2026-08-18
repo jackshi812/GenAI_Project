@@ -112,7 +112,14 @@ button, input { font: inherit; }
   color: #fff;
 }
 .message-bubble.pending { color: #6f7682; font-style: italic; }
+.message-row.assistant .message-bubble.pending {
+  animation: thinking-pulse 1.15s ease-in-out infinite alternate;
+}
 .message-row.user .message-bubble.pending { color: #dcecff; }
+@keyframes thinking-pulse {
+  from { background: #e9ebef; color: #6f7682; }
+  to { background: #dfe8f5; color: #3f5877; }
+}
 
 .voice-state {
   align-items: center;

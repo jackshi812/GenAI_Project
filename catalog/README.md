@@ -18,6 +18,10 @@ numeric/category/brand metadata filters.
 - Embeddings use title plus `About Product` and bounded technical details.
   Spoken budget language must be separated by the planner: only the semantic
   product meaning goes into `query`; prices go into numeric filters.
+- Search reranks a wider semantic pool using title and detail-term coverage.
+  Each result may include up to three query-relevant `feature_evidence`
+  excerpts copied from the real `About Product` / technical fields. Responses
+  may use those excerpts but may not infer an unstated feature.
 
 ## Build and verify
 
@@ -49,6 +53,7 @@ results = search(
 )
 ```
 
-Each result contains the assignment's seven public fields plus display and
-provenance fields. Range prices whose low end qualifies but high end exceeds a
-budget are labeled `budget_fit="partial"` and sorted below full fits.
+Each result contains the assignment's seven public fields plus display,
+provenance, and grounded feature-evidence fields. Range prices whose low end
+qualifies but high end exceeds a budget are labeled `budget_fit="partial"` and
+sorted below full fits.

@@ -61,7 +61,7 @@ async def list_tools() -> list[types.Tool]:
                     "price_min": {"type": "number"},
                     "category": {"type": "string"},
                     "brand": {"type": "string"},
-                    "k": {"type": "integer", "minimum": 1, "maximum": 50, "default": 5},
+                    "k": {"type": "integer", "minimum": 1, "maximum": 50, "default": 6},
                 },
                 "required": ["query"],
                 "additionalProperties": False,
@@ -112,7 +112,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
                 price_min=arguments.get("price_min"),
                 category=arguments.get("category"),
                 brand=arguments.get("brand"),
-                k=arguments.get("k", 5),
+                k=arguments.get("k", 6),
             )
         elif name == "web.search":
             results = await asyncio.to_thread(

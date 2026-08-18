@@ -16,7 +16,7 @@ _PROMPT_CACHE: dict[str, str] = {}
 SUPPORTED_PROVIDERS = ("anthropic", "openai")
 
 
-def get_llm():
+def get_llm(*, reasoning_effort: str | None = None):
     """Return a LangChain chat model selected by LLM_PROVIDER / LLM_MODEL.
 
     NOTE: never pass a numeric temperature to ChatAnthropic — current Claude
@@ -33,7 +33,17 @@ def get_llm():
     if provider == "openai":
         from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(model=model)
+        kwargs = {"model": model}
+        model_key = model.casefold()
+        if model_key.startswith(("gpt-5", "o1", "o3", "o4")):
+            effort = (
+                reasoning_effort
+                if reasoning_effort is not None
+                else os.getenv("LLM_REASONING_EFFORT", "low").strip()
+            )
+            if effort:
+                kwargs["reasoning_effort"] = effort
+        return ChatOpenAI(**kwargs)
     raise ValueError(
         f"Unsupported LLM_PROVIDER={provider!r}; supported values are "
         f"{SUPPORTED_PROVIDERS[0]!r} and {SUPPORTED_PROVIDERS[1]!r}."

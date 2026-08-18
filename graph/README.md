@@ -10,13 +10,15 @@ START -> router -> planner -> retriever -> answerer -> END
 
 | Node | File | Does | Prompt |
 |---|---|---|---|
-| Router | `graph/interactive.py` or `graph/nodes.py` | transcript → task, numeric budget, category/brand/material, safety flags | `prompts/router.md` in `llm` mode |
+| Router | `graph/interactive.py` or `graph/nodes.py` | transcript + prior shopping context → task, changing preferences, numeric budget, safety flags | `prompts/preferences.md` selectively; `prompts/router.md` in `llm` mode |
 | Planner | `graph/interactive.py` or `graph/nodes.py` | source selection, RAG filters, semantic query | `prompts/planner.md` in `llm` mode |
 | Retriever | `graph/retriever.py` | `rag.search`, per-product `web.search` (D-06), three-stage match (D-01), price reconciliation (D-02), no-match honesty (D-03) | `prompts/match_confirm.md` (stage C only) |
-| Answerer/Critic | `graph/interactive.py` or `graph/answer.py` | ≤30-word cited spoken answer; deterministic citation validation or prompt-based critic | `prompts/answerer.md`, `prompts/critic.md` in `llm` mode |
+| Answerer/Critic | `graph/interactive.py` or `graph/answer.py` | ≤30-word cited comparison; one natural-language call with deterministic validation, or prompt-based critic | `prompts/answerer.md`, `prompts/critic.md` |
 
 Supporting modules: `graph/llm.py` (env-swappable provider + prompt loader),
 `graph/state.py` (state schema, graph-internal models, `make_step`),
+`graph/preferences.py` (multi-turn color, size, material, texture, comfort,
+feature, exclusion, and product-change handling with a bounded LLM fallback),
 `graph/matching.py` (pure deterministic matching helpers, unit-testable with
 no key), `graph/tools.py` (the async `ToolClient` seam + shared `_decode` +
 eight-word fixture key), `graph/tools_stub.py` (fixture implementation, kept
@@ -33,10 +35,13 @@ boundary; the Retriever converts it into an empty result plus a truthful
 invented.
 
 Graph execution is also env-driven. `GRAPH_MODE=interactive` is the default
-for the app: it runs the same required LangGraph stages, limits live retrieval
-to one web request, and composes an evidence-only answer without sequential
-LLM waits. `GRAPH_MODE=llm` selects the original prompt-heavy router, planner,
-answerer, critic, and optional match-confirm calls for audit comparisons.
+for the app: it runs the same required LangGraph stages, resolves common
+preferences locally, uses the configured LLM only for ambiguous conversational
+changes, and makes at most one bounded natural-answer call after retrieval.
+Both calls have short timeouts and fail closed to grounded local behavior.
+Weak catalog attribute coverage may trigger one direct web discovery query.
+`GRAPH_MODE=llm` selects the original prompt-heavy router, planner, answerer,
+critic, and optional match-confirm calls for audit comparisons.
 
 ## Verify
 
@@ -59,7 +64,9 @@ Verified against Jack's `contracts.py` (strict pydantic, `extra="forbid"`):
 `MatchInfo.similarity`, `Conflict.note` (human-readable, no `direction`
 field), `StepEvent.started_at` (recorded by `graph.state.timer`), and
 `AssistantResult` without `intent` (intent stays graph-internal; it reaches
-the step log via the router step's detail).
+the step log via the router step's detail). The additive `shopping_context`
+contains shopper preferences only and lets typed and voice follow-ups change
+one facet without losing the active product or budget.
 
 One divergence to raise with Jack at the Aug 13 checkpoint: `fixtures.json`
 keys `web_results` by **full catalog title**, while D-08 specifies the

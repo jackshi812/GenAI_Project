@@ -6,7 +6,13 @@ import os
 import unittest
 from unittest.mock import patch
 
-from app.config import live_evidence_notice, product_live_notice, source_mode_label
+from app.config import (
+    clarification_needed,
+    live_evidence_notice,
+    product_live_notice,
+    refinement_needed,
+    source_mode_label,
+)
 from contracts import (
     AssistantResult,
     ComparisonProduct,
@@ -107,6 +113,41 @@ class SourceModeLabelTests(unittest.TestCase):
                 source_mode_label(result),
                 "Live MCP · Catalog only (web not requested)",
             )
+
+    def test_clarification_turn_says_search_has_not_started(self) -> None:
+        result = AssistantResult(
+            transcript="I want something under $20",
+            plan="Clarifying question; product tools paused until a category is named.",
+            answer_text="What kind of product would you like?",
+            products=[],
+            steps=[],
+            citations=[],
+        )
+
+        self.assertTrue(clarification_needed(result))
+        self.assertEqual(
+            source_mode_label(result),
+            "Clarification needed · Search not started",
+        )
+
+    def test_refinement_turn_is_not_labeled_as_a_new_search(self) -> None:
+        result = AssistantResult(
+            transcript="I don't like them",
+            plan=(
+                "Preference refinement; previous results retained and product "
+                "tools paused until the shopper says what should change."
+            ),
+            answer_text="What should I adjust?",
+            products=[],
+            steps=[],
+            citations=[],
+        )
+
+        self.assertTrue(refinement_needed(result))
+        self.assertEqual(
+            source_mode_label(result),
+            "Refining your choices · Search paused",
+        )
 
 
 class LiveEvidenceNoticeTests(unittest.TestCase):

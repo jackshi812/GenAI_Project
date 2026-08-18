@@ -2,7 +2,7 @@
 
 Jack's app calls exactly one function:
 
-    run_graph(transcript: str) -> AssistantResult
+    run_graph(transcript: str, *, dialogue_context: dict | None = None) -> AssistantResult
 
 The sync/async bridge wraps the complete graph turn — the app receives one
 completed result, never a stream or raw LangGraph state (D-14). Phase 2
@@ -83,6 +83,7 @@ async def _run(
     tools=None,
     *,
     graph_mode: str | None = None,
+    dialogue_context: dict | None = None,
 ) -> AssistantResult:
     """One async runner for the whole turn. The single sync/async boundary is
     run_graph; nothing else calls asyncio.run. One call means one tool-client
@@ -92,19 +93,28 @@ async def _run(
         tools = _select_tools()
     async with tools:
         graph = build_graph(tools, mode=graph_mode)
-        final = await graph.ainvoke({"transcript": transcript, "steps": []})
+        final = await graph.ainvoke(
+            {
+                "transcript": transcript,
+                "dialogue_context": dialogue_context or {},
+                "steps": [],
+            }
+        )
     return _to_result(final)
 
 
-def run_graph(transcript: str) -> AssistantResult:
-    """UI-facing synchronous wrapper. Tool selection follows TOOL_MODE;
-    the signature is unchanged from Phase 1."""
-    return asyncio.run(_run(transcript))
+def run_graph(
+    transcript: str,
+    *,
+    dialogue_context: dict | None = None,
+) -> AssistantResult:
+    """UI-facing synchronous wrapper with optional prior-turn evidence."""
+    return asyncio.run(_run(transcript, dialogue_context=dialogue_context))
 
 
 def _to_result(state: dict) -> AssistantResult:
-    # Exactly the six contract fields (strict model, extra="forbid"); the
-    # extracted intent stays graph-internal and reaches the UI via step detail.
+    # The extracted intent stays graph-internal. The additive shopping context
+    # carries user preferences across turns; it contains no product claims.
     return AssistantResult(
         transcript=state.get("transcript", ""),
         plan=state.get("plan"),
@@ -112,6 +122,8 @@ def _to_result(state: dict) -> AssistantResult:
         products=state.get("products", []),
         steps=state.get("steps", []),
         citations=state.get("citations", []),
+        top_recommendation=state.get("top_recommendation"),
+        shopping_context=state.get("shopping_context"),
     )
 
 

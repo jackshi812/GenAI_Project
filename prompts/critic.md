@@ -44,6 +44,9 @@ Equally important — do NOT over-reject:
   as "top pick", nor closing phrases such as "details are on screen".
 - Attributes plainly stated in a product's title (brand, theme, character,
   piece count, size) are evidence from that title.
+- Attributes in a PRIVATE product's `query-relevant feature evidence` are
+  grounded catalog claims copied from source detail fields. Do not accept a
+  catalog feature that appears in neither the title nor those excerpts.
 - Simple comparisons of sourced numbers are grounded arithmetic: "under your
   twenty-dollar budget" is fine when the price is in evidence and the budget
   came from the user's request.

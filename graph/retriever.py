@@ -7,16 +7,66 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from contracts import ComparisonProduct, Conflict, MatchInfo, RagResult, WebResult
+from contracts import (
+    ComparisonProduct,
+    Conflict,
+    MatchInfo,
+    RagResult,
+    ShoppingContext,
+    WebResult,
+)
 
 from graph.llm import get_llm, load_prompt
 from graph.matching import match_band, price_conflict, title_similarity, variant_guard
+from graph.preferences import (
+    filter_products_by_required_facets,
+    matched_preferences,
+    preference_requirements,
+    rank_products_by_preferences,
+)
 from graph.relevance import catalog_result_is_relevant
 from graph.state import make_step, timer
 from graph.tools import clean_filters, eight_word_key
 
-TOP_K_PRODUCTS = 3
+TOP_K_PRODUCTS = 6
+RAG_CANDIDATE_K = 12
+LIVE_ENRICHMENT_LIMIT = 6
 SNIPPET_CAP = 300  # chars; live snippets are untrusted third-party text
+
+
+def best_available_facet_pool(
+    products: list[ComparisonProduct],
+    context: ShoppingContext | dict | None,
+) -> list[ComparisonProduct]:
+    """Prefer exact hard-facet matches without turning sparse evidence empty.
+
+    If no listing verifies every requested hard facet, keep grounded product
+    matches (still respecting exclusions) so the answer can state that the
+    missing detail is unconfirmed instead of pretending there were no products.
+    """
+    exact = filter_products_by_required_facets(products, context)
+    if exact or not products or context is None:
+        return exact
+    profile = (
+        context
+        if isinstance(context, ShoppingContext)
+        else ShoppingContext.model_validate(context)
+    )
+    if not any(
+        getattr(profile, field)
+        for field in ("colors", "sizes", "materials", "textures")
+    ):
+        return exact
+    relaxed = profile.model_copy(
+        update={
+            "colors": [],
+            "sizes": [],
+            "materials": [],
+            "textures": [],
+        },
+        deep=True,
+    )
+    return filter_products_by_required_facets(products, relaxed)
 
 
 class MatchDecision(BaseModel):
@@ -40,11 +90,17 @@ def make_retriever_node(tools, *, interactive: bool = False):
 
         # Safety stop or explicit private opt-out: no tools, no products.
         if not state.get("use_private", True):
-            reason = (
-                "conversation"
-                if state.get("turn_kind") == "conversation"
-                else "safety stop"
-            )
+            reason = {
+                "conversation": "conversation",
+                "clarification": "clarification",
+                "refinement": "preference refinement",
+                "selection": "agent selection from retained evidence",
+            }.get(state.get("turn_kind"), "safety stop")
+            retained_products = []
+            if state.get("turn_kind") in {"refinement", "selection"}:
+                retained_products = list(
+                    (state.get("dialogue_context") or {}).get("products") or []
+                )
             steps.append(
                 make_step(
                     "retriever",
@@ -54,31 +110,58 @@ def make_retriever_node(tools, *, interactive: bool = False):
                     f"Retrieval skipped ({reason}).",
                 )
             )
-            return {"rag_results": [], "web_results": [], "products": [], "steps": steps}
+            return {
+                "rag_results": [],
+                "web_results": [],
+                "products": retained_products,
+                "steps": steps,
+            }
 
         # --- Step 1: private catalog ------------------------------------
         filters = clean_filters(state.get("filters") or {})
         query = state["semantic_query"]  # never the raw transcript
+        shopping_context = state.get("shopping_context")
+        relevance_query = (
+            getattr(shopping_context, "product_query", None)
+            if shopping_context is not None
+            else None
+        ) or query
+        catalog_query = relevance_query
         try:
             with timer() as t:
-                raw_rag_results = await tools.rag_search(query, **filters)
-            rag_results = [
+                raw_rag_results = await tools.rag_search(catalog_query, **filters)
+            relevant_rag_results = [
                 result
                 for result in raw_rag_results
-                if catalog_result_is_relevant(query, result)
-            ][:TOP_K_PRODUCTS]
-            if interactive and state.get("use_live"):
-                # One catalog candidate and one Serper request keep the
-                # interactive graph bounded. Remaining slots may show honest
-                # live-only alternatives from that same response.
-                rag_results = rag_results[:1]
+                if catalog_result_is_relevant(relevance_query, result)
+            ]
+            private_candidates = [
+                ComparisonProduct(
+                    private=result,
+                    live=None,
+                    conflicts=[],
+                    match=None,
+                )
+                for result in relevant_rag_results
+            ]
+            private_candidates = rank_products_by_preferences(
+                best_available_facet_pool(private_candidates, shopping_context),
+                shopping_context,
+            )[:TOP_K_PRODUCTS]
+            rag_results = [
+                product.private
+                for product in private_candidates
+                if product.private is not None
+            ]
             steps.append(
                 make_step(
                     "retriever",
                     "rag.search",
                     "completed",
                     t.ms,
-                    f"query={query!r} filters={filters} -> {len(rag_results)} "
+                    f"query={catalog_query!r} product={relevance_query!r} "
+                    f"filters={filters} "
+                    f"-> {len(rag_results)} "
                     f"reliable of {len(raw_rag_results)} retrieved",
                     t.started_at,
                 )
@@ -95,8 +178,13 @@ def make_retriever_node(tools, *, interactive: bool = False):
         if not rag_results:
             try:
                 with timer() as t:
-                    direct_hits = await tools.web_search(query, num=5)
-                direct_hits = _filter_live_budget(direct_hits, filters)[:TOP_K_PRODUCTS]
+                    direct_hits = await tools.web_search(
+                        query,
+                        num=RAG_CANDIDATE_K,
+                    )
+                direct_hits = _filter_live_budget(direct_hits, filters)[
+                    :RAG_CANDIDATE_K
+                ]
                 steps.append(
                     make_step(
                         "retriever",
@@ -127,6 +215,17 @@ def make_retriever_node(tools, *, interactive: bool = False):
                 )
                 for hit in direct_hits
             ]
+            products = rank_products_by_preferences(
+                best_available_facet_pool(
+                    products, state.get("shopping_context")
+                ),
+                state.get("shopping_context"),
+            )[:TOP_K_PRODUCTS]
+            direct_hits = [
+                product.live
+                for product in products
+                if product.live is not None
+            ]
             steps.append(
                 make_step(
                     "retriever",
@@ -146,8 +245,9 @@ def make_retriever_node(tools, *, interactive: bool = False):
         # --- Step 2: one live query per product (D-06) -------------------
         web_by_product: list[list[WebResult]] = []
         if state.get("use_live") and rag_results:
+            live_lookup_limit = 1 if interactive else LIVE_ENRICHMENT_LIMIT
             for index, r in enumerate(rag_results):
-                if interactive and index >= 1:
+                if index >= live_lookup_limit:
                     web_by_product.append([])
                     continue
                 live_query = eight_word_key(r.title)  # full titles match nothing
@@ -223,6 +323,77 @@ def make_retriever_node(tools, *, interactive: bool = False):
                     )
                 )
                 used_urls.add(hit.url)
+
+        requirements = preference_requirements(state.get("shopping_context"))
+        required_facet_products = filter_products_by_required_facets(
+            products,
+            state.get("shopping_context"),
+        )
+        best_supported = max(
+            (
+                len(matched_preferences(product, state.get("shopping_context")))
+                for product in required_facet_products
+            ),
+            default=0,
+        )
+        minimum_supported = max(1, (len(requirements) + 1) // 2)
+        needs_live_discovery = bool(requirements) and (
+            len(required_facet_products) < 3 or best_supported < minimum_supported
+        )
+        if interactive and needs_live_discovery and not state.get("use_live"):
+            try:
+                with timer() as t:
+                    discovery_hits = await tools.web_search(
+                        query,
+                        num=RAG_CANDIDATE_K,
+                    )
+                discovery_hits = _filter_live_budget(discovery_hits, filters)
+                all_web.extend(discovery_hits)
+                known_urls = {
+                    product.live.url
+                    for product in products
+                    if product.live is not None
+                }
+                products.extend(
+                    ComparisonProduct(
+                        private=None,
+                        live=hit,
+                        conflicts=[],
+                        match=None,
+                    )
+                    for hit in discovery_hits
+                    if hit.url not in known_urls
+                )
+                steps.append(
+                    make_step(
+                        "retriever",
+                        "web.search",
+                        "completed",
+                        t.ms,
+                        (
+                            f"preference shortfall ({best_supported}/"
+                            f"{len(requirements)} supported); direct query={query!r} "
+                            f"-> {len(discovery_hits)} results"
+                        ),
+                        t.started_at,
+                    )
+                )
+            except Exception as exc:
+                steps.append(
+                    make_step(
+                        "retriever",
+                        "web.search",
+                        "error",
+                        0,
+                        f"preference discovery failed for {query!r}: {exc}",
+                    )
+                )
+        products = rank_products_by_preferences(
+            best_available_facet_pool(
+                products, state.get("shopping_context")
+            ),
+            state.get("shopping_context"),
+        )[:TOP_K_PRODUCTS]
         return {
             "rag_results": rag_results,
             "web_results": all_web,

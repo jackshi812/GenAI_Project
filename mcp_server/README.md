@@ -8,7 +8,9 @@ Ginger's graph owns reconciliation; it is deliberately not a third tool.
 
 `rag.search` accepts required `query` plus optional `price_max`, `price_min`,
 `category`, `brand`, and `k`. It calls `catalog.search.search` and returns
-private Amazon 2020 evidence with null private ratings and ingredients.
+private Amazon 2020 evidence with null private ratings and ingredients. The
+graph normally requests 12 candidates, reranks against stated preferences,
+and returns at most six products to the interface.
 
 `web.search` accepts required `query` plus optional `num`. With
 `SERPER_API_KEY`, it calls Serper's Shopping endpoint. Without a key, it looks

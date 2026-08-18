@@ -8,6 +8,7 @@ from typing import Literal as _Literal
 
 from pydantic import BaseModel as _BaseModel
 from pydantic import ConfigDict as _ConfigDict
+from pydantic import Field as _Field
 from pydantic import field_validator as _field_validator
 
 
@@ -33,6 +34,10 @@ class RagResult(_BaseModel):
     price_high: float | None
     similarity: float
     budget_fit: _Literal["within", "partial", "unknown"]
+    # Query-relevant excerpts copied from the catalog's real About Product /
+    # Technical Details fields. These are the only catalog feature claims the
+    # response layer may make beyond facts stated in the title.
+    feature_evidence: list[str] = _Field(default_factory=list)
 
     @_field_validator("price")
     @classmethod
@@ -137,6 +142,42 @@ class Citation(_BaseModel):
     url: str | None
 
 
+class TopRecommendation(_BaseModel):
+    """Canonical graph-owned recommendation rendered consistently by the UI."""
+
+    model_config = _ConfigDict(strict=True, extra="forbid")
+
+    # ``catalog:{doc_id}`` when private evidence exists, otherwise
+    # ``live:{url}``. The graph keeps this key aligned with products[0].
+    product_key: str
+    title: str
+    reason: str
+
+
+class ShoppingContext(_BaseModel):
+    """Conversation-safe shopping preferences carried between turns.
+
+    The profile contains only shopper-stated or explicitly inferred search
+    requirements. Product facts never enter this model; those still come from
+    ``RagResult`` / ``WebResult`` evidence.
+    """
+
+    model_config = _ConfigDict(strict=True, extra="forbid")
+
+    product_query: str = ""
+    colors: list[str] = _Field(default_factory=list)
+    sizes: list[str] = _Field(default_factory=list)
+    materials: list[str] = _Field(default_factory=list)
+    textures: list[str] = _Field(default_factory=list)
+    comfort: list[str] = _Field(default_factory=list)
+    features: list[str] = _Field(default_factory=list)
+    excluded: list[str] = _Field(default_factory=list)
+    resolved_query: str = ""
+    is_followup: bool = False
+    preference_changed: bool = False
+    understanding_source: _Literal["rules", "llm", "fallback"] = "rules"
+
+
 class AssistantResult(_BaseModel):
     """The graph-to-interface response contract."""
 
@@ -148,3 +189,5 @@ class AssistantResult(_BaseModel):
     products: list[ComparisonProduct]
     steps: list[StepEvent]
     citations: list[Citation]
+    top_recommendation: TopRecommendation | None = None
+    shopping_context: ShoppingContext | None = None

@@ -6,6 +6,23 @@ import {
   Track,
 } from "livekit-client";
 import "./style.css";
+import {
+  canonicalTranscriptForProductEvent,
+  isShopperTranscription,
+  mergeTranscriptChunk,
+  shouldRenderTranscription,
+} from "./transcript.js";
+import {
+  externalTurnCommittedEvent,
+  PENDING_ASSISTANT_MESSAGE,
+  productEventPolicy,
+  shouldApplyExternalTurn,
+} from "./product_events.js";
+import {
+  createTypedAudioController,
+  createTypedTurnEpoch,
+  synchronizeTypedTurn,
+} from "./typed_audio.js";
 
 const elements = {
   audio: document.getElementById("agent-audio"),
@@ -35,8 +52,13 @@ let lastExternalTurnId = null;
 let readyForNewTurn = true;
 let currentVoiceMessageId = null;
 let currentAssistantMessageId = null;
+let voiceTurnCommitted = false;
 const userSegments = new Map();
 const messageNodes = new Map();
+const typedAudio = createTypedAudioController();
+const typedTurns = createTypedTurnEpoch({
+  stopAudio: () => typedAudio.stop(),
+});
 
 function uniqueId(prefix) {
   const suffix = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
@@ -111,6 +133,7 @@ function resetMessages() {
   currentVoiceMessageId = null;
   currentAssistantMessageId = null;
   readyForNewTurn = true;
+  voiceTurnCommitted = false;
   lastFastId = null;
   lastResultId = null;
   lastExternalTurnId = null;
@@ -126,11 +149,25 @@ function combinedTranscript() {
 }
 
 function beginVoiceTurn() {
+  typedTurns.invalidate();
   userSegments.clear();
   currentVoiceMessageId = uniqueId("voice-user");
   currentAssistantMessageId = null;
+  lastFastId = null;
+  lastResultId = null;
   readyForNewTurn = false;
+  voiceTurnCommitted = false;
   appendMessage("user", "Listening…", currentVoiceMessageId, true);
+}
+
+function commitVoiceTranscript(value) {
+  const transcript = canonicalTranscriptForProductEvent(value);
+  if (!transcript) return;
+  if (!currentVoiceMessageId || readyForNewTurn) beginVoiceTurn();
+  userSegments.clear();
+  userSegments.set("canonical", { text: transcript, final: true });
+  updateMessage(currentVoiceMessageId, transcript, false);
+  voiceTurnCommitted = true;
 }
 
 function renderVoiceTranscript() {
@@ -162,30 +199,52 @@ function endTimer() {
 }
 
 async function handleTranscription(reader, participantInfo) {
-  const attributes = reader.info?.attributes || {};
-  const segmentId = attributes["lk.segment_id"] || uniqueId("segment");
-  const isFinal = attributes["lk.transcription_final"] === "true";
-  const isUser = participantInfo.identity === room?.localParticipant.identity;
-  if (!isUser) return;
+  try {
+    const attributes = reader.info?.attributes || {};
+    const segmentId = attributes["lk.segment_id"] || uniqueId("segment");
+    const localParticipant = room?.localParticipant;
+    const microphone = localParticipant?.getTrackPublication(Track.Source.Microphone);
+    const isUser = isShopperTranscription({
+      attributes,
+      participantIdentity: participantInfo?.identity,
+      localIdentity: localParticipant?.identity,
+      localMicrophoneTrackId: microphone?.trackSid,
+    });
+    if (!isUser) return;
 
-  if (readyForNewTurn || !currentVoiceMessageId) beginVoiceTurn();
-  let message = "";
-  if (reader[Symbol.asyncIterator]) {
-    for await (const chunk of reader) {
-      message += chunk;
-      userSegments.set(segmentId, { text: message.trim(), final: false });
-      renderVoiceTranscript();
-      setStatus("Listening…", "listening");
+    if (
+      shouldRenderTranscription({ turnCommitted: voiceTurnCommitted })
+      && (readyForNewTurn || !currentVoiceMessageId)
+    ) beginVoiceTurn();
+    let message = "";
+    if (reader[Symbol.asyncIterator]) {
+      for await (const chunk of reader) {
+        message = mergeTranscriptChunk(message, chunk);
+        if (shouldRenderTranscription({ turnCommitted: voiceTurnCommitted })) {
+          userSegments.set(segmentId, { text: message.trim(), final: false });
+          renderVoiceTranscript();
+          setStatus("Listening…", "listening");
+        }
+      }
+    } else {
+      message = await reader.readAll();
     }
-  } else {
-    message = await reader.readAll();
-  }
 
-  userSegments.set(segmentId, { text: message.trim(), final: isFinal });
-  renderVoiceTranscript();
-  if (isFinal) {
-    setStatus("Finding a grounded match…", "thinking");
-    elements.voiceHint.textContent = "Your message was sent automatically.";
+    // LiveKit adds the final marker on the stream trailer. Read it after the
+    // stream closes; the header is intentionally marked as interim.
+    const finalAttributes = reader.info?.attributes || {};
+    const isFinal = finalAttributes["lk.transcription_final"] === "true";
+    if (!shouldRenderTranscription({ turnCommitted: voiceTurnCommitted })) return;
+    userSegments.set(segmentId, { text: message.trim(), final: isFinal });
+    renderVoiceTranscript();
+    if (isFinal) {
+      assistantMessageForVoice(PENDING_ASSISTANT_MESSAGE, true);
+      setStatus("Finding a grounded match…", "thinking");
+      elements.voiceHint.textContent = "Your message was sent automatically.";
+    }
+  } catch (_error) {
+    showError("Live transcription was interrupted. Keep speaking or restart the microphone.");
+    setStatus("Listening…", "listening");
   }
 }
 
@@ -207,9 +266,35 @@ function handleProductEvent(payload, _participant, _kind, topic) {
   if (topic !== "product.discovery") return;
   try {
     const envelope = JSON.parse(new TextDecoder().decode(payload));
+    const policy = productEventPolicy(envelope.type);
+    if (!policy) return;
+    let resultId = null;
+    if (envelope.type === "assistant_result") {
+      resultId = `result:${envelope.data.transcript}:${envelope.data.answer_text}`;
+      if (resultId === lastResultId) return;
+      lastResultId = resultId;
+    }
+    commitVoiceTranscript(envelope.data?.transcript);
+    if (envelope.type === "turn_started") {
+      readyForNewTurn = policy.readyForNewTurn;
+      if (policy.showThinkingMessage) {
+        assistantMessageForVoice(
+          envelope.data?.answer_text || PENDING_ASSISTANT_MESSAGE,
+          true,
+        );
+      }
+      emitEnvelope(
+        envelope,
+        `started:${envelope.data.transcript}`,
+      );
+      setStatus("Finding a grounded match…", "thinking");
+      return;
+    }
     if (envelope.type === "fast_reply") {
-      assistantMessageForVoice(envelope.data.answer_text);
-      readyForNewTurn = true;
+      readyForNewTurn = policy.readyForNewTurn;
+      if (policy.showThinkingMessage) {
+        assistantMessageForVoice(PENDING_ASSISTANT_MESSAGE, true);
+      }
       const fastId = `fast:${envelope.data.transcript}:${envelope.data.answer_text}`;
       if (fastId !== lastFastId) {
         lastFastId = fastId;
@@ -217,20 +302,18 @@ function handleProductEvent(payload, _participant, _kind, topic) {
       }
       setStatus(
         envelope.data.live_followup_needed
-          ? "Answering now; checking current evidence…"
-          : "Speaking…",
-        "speaking",
+          ? "Checking catalog and current evidence…"
+          : "Comparing grounded matches…",
+        "thinking",
       );
       return;
     }
     if (envelope.type === "assistant_result") {
-      const resultId = `result:${envelope.data.transcript}:${envelope.data.answer_text}`;
-      assistantMessageForVoice(envelope.data.answer_text);
-      if (resultId !== lastResultId) {
-        lastResultId = resultId;
-        emitEnvelope(envelope, resultId);
+      if (policy.showAssistantMessage) {
+        assistantMessageForVoice(envelope.data.answer_text);
       }
-      readyForNewTurn = true;
+      emitEnvelope(envelope, resultId);
+      readyForNewTurn = policy.readyForNewTurn;
       setStatus("Ready for your next question", "listening");
       elements.voiceHint.textContent = "Keep speaking, or type your next message.";
     }
@@ -303,6 +386,7 @@ async function startConversation() {
     setStatus("Your assistant is joining…", "thinking");
     await waitForAgent(room);
     await room.localParticipant.setMicrophoneEnabled(true);
+    beginVoiceTurn();
     elements.start.classList.add("hidden");
     elements.stop.classList.remove("hidden");
     beginTimer();
@@ -334,11 +418,14 @@ function submitTypedMessage(event) {
     return;
   }
 
+  clearError();
   const requestId = uniqueId("typed");
+  typedTurns.begin(requestId);
+  void typedAudio.arm();
   appendMessage("user", text, `user-${requestId}`);
   appendMessage(
     "assistant",
-    "Checking the catalog and current product evidence…",
+    PENDING_ASSISTANT_MESSAGE,
     `assistant-${requestId}`,
     true,
   );
@@ -348,11 +435,16 @@ function submitTypedMessage(event) {
   Streamlit.setComponentValue({
     type: "typed_message",
     event_id: requestId,
-    data: { transcript: text, request_id: requestId },
+    data: {
+      transcript: text,
+      request_id: requestId,
+      supports_commit: true,
+    },
   });
 }
 
 async function restartChat() {
+  typedTurns.invalidate();
   if (room) await room.disconnect();
   room = null;
   connectedRoom = null;
@@ -370,26 +462,54 @@ async function restartChat() {
   });
 }
 
-function applyExternalTurn(turn) {
+async function applyExternalTurn(turn) {
   if (!turn?.request_id || !turn?.answer_text) return;
+  const turnEpoch = typedTurns.capture(turn.request_id);
+  if (turnEpoch === null) return;
   const signature = `${turn.request_id}:${turn.answer_text}`;
-  if (signature === lastExternalTurnId) return;
+  if (!shouldApplyExternalTurn({
+    requestId: turn.request_id,
+    pendingRequestId: typedTurns.pendingRequestId(),
+    signature,
+    lastSignature: lastExternalTurnId,
+  })) return;
   lastExternalTurnId = signature;
-  if (turn.transcript) {
-    appendMessage("user", turn.transcript, `user-${turn.request_id}`);
-  }
-  appendMessage(
-    "assistant",
-    turn.answer_text,
-    `assistant-${turn.request_id}`,
-    false,
-  );
-  setStatus("Ready for your next question", room ? "listening" : "idle");
+  await synchronizeTypedTurn(turn, {
+    playAudio: (audioBase64) => typedAudio.play(audioBase64),
+    isCurrent: (candidate) => typedTurns.isCurrent(
+      candidate.request_id,
+      turnEpoch,
+    ),
+    commit: (completedTurn, audioStarted) => {
+      if (!typedTurns.complete(completedTurn.request_id, turnEpoch)) return;
+      if (completedTurn.transcript) {
+        appendMessage(
+          "user",
+          completedTurn.transcript,
+          `user-${completedTurn.request_id}`,
+        );
+      }
+      appendMessage(
+        "assistant",
+        completedTurn.answer_text,
+        `assistant-${completedTurn.request_id}`,
+        false,
+      );
+      if (completedTurn.audio_base64 && !audioStarted) {
+        showError(
+          "Answer audio could not start. Use “Replay the latest spoken answer” below.",
+        );
+      }
+      setStatus("Ready for your next question", room ? "listening" : "idle");
+      const committed = externalTurnCommittedEvent(completedTurn.request_id);
+      if (committed) Streamlit.setComponentValue(committed);
+    },
+  });
 }
 
 function onRender(event) {
   config = event.detail.args;
-  applyExternalTurn(config.external_turn);
+  void applyExternalTurn(config.external_turn);
   Streamlit.setFrameHeight(700);
 }
 

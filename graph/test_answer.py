@@ -3,10 +3,26 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
-from contracts import ComparisonProduct, MatchInfo, RagResult, WebResult
-from graph.answer import AnswerOutput, CriticOutput, answerer_node
+from contracts import (
+    ComparisonProduct,
+    MatchInfo,
+    RagResult,
+    ShoppingContext,
+    TopRecommendation,
+    WebResult,
+)
+from graph.answer import (
+    AnswerOutput,
+    CriticOutput,
+    _answer_call,
+    _canonical_answer_text,
+    _degraded_answer,
+    answerer_node,
+    natural_answer_once,
+)
+from graph.recommendation import build_top_recommendation
 
 
 LIVE_URL = "https://www.example.com/widget-alpha"
@@ -54,6 +70,587 @@ def _draft(*, include_live_url: bool) -> AnswerOutput:
 
 
 class CitationCompletenessTests(unittest.IsolatedAsyncioTestCase):
+    def test_deterministic_answer_uses_the_retrieved_matched_detail(self) -> None:
+        detail = "Soft padded grip designed for comfortable play"
+        product = _product().model_copy(
+            update={
+                "private": _product().private.model_copy(
+                    update={"feature_evidence": [detail]}
+                ),
+                "live": None,
+                "match": None,
+            },
+            deep=True,
+        )
+        state = {
+            "transcript": "Find a comfortable widget under $20",
+            "semantic_query": "comfortable widget",
+            "constraints": {"budget_max": 20.0},
+            "products": [product],
+        }
+
+        top = build_top_recommendation([product], state)
+        draft = _degraded_answer([product], state)
+
+        self.assertEqual(top.reason, f"Catalog evidence notes: {detail}.")
+        self.assertIn(detail, draft.answer_text)
+
+    def test_long_enumerated_detail_ends_at_a_complete_clause(self) -> None:
+        detail = (
+            "The latest line of Barbie Fashionistas dolls includes 7 body "
+            "types, 9 skin tones, 35 hairstyles and countless fashions"
+        )
+        product = _product().model_copy(
+            update={
+                "private": _product().private.model_copy(
+                    update={"feature_evidence": [detail]}
+                ),
+                "live": None,
+                "match": None,
+            },
+            deep=True,
+        )
+        state = {
+            "transcript": "Find a Barbie doll",
+            "semantic_query": "Barbie doll",
+            "products": [product],
+        }
+
+        top = build_top_recommendation([product], state)
+        draft = _degraded_answer([product], state)
+
+        complete_reason = (
+            "Catalog evidence notes: The latest line of Barbie Fashionistas "
+            "dolls includes 7 body types."
+        )
+        self.assertEqual(top.reason, complete_reason)
+        self.assertTrue(draft.answer_text.endswith(complete_reason))
+        self.assertLessEqual(len(draft.answer_text.split()), 30)
+
+    def test_short_feature_detail_keeps_complete_open_ended_play_clause(self) -> None:
+        detail = (
+            "Features a mix of bright, colorful LEGO pieces that allow for "
+            "open-ended play."
+        )
+        product = _product().model_copy(
+            update={
+                "private": _product().private.model_copy(
+                    update={
+                        "title": "LEGO Classic Creative Brick Box Set",
+                        "feature_evidence": [detail],
+                    }
+                ),
+                "live": None,
+                "match": None,
+            },
+            deep=True,
+        )
+        state = {
+            "transcript": "Find LEGO for my kid",
+            "semantic_query": "LEGO",
+            "products": [product],
+        }
+
+        top = build_top_recommendation([product], state)
+        draft = _degraded_answer([product], state)
+
+        complete_reason = f"Catalog evidence notes: {detail}"
+        self.assertEqual(top.reason, complete_reason)
+        self.assertTrue(draft.answer_text.endswith(complete_reason))
+        self.assertLessEqual(len(draft.answer_text.split()), 30)
+
+    def test_long_punctuation_free_detail_falls_back_to_grounded_reason(self) -> None:
+        detail = (
+            "Designed with bright colorful reusable building pieces that encourage "
+            "imaginative collaborative creative play for children across many open "
+            "ended projects at home"
+        )
+        product = _product().model_copy(
+            update={
+                "private": _product().private.model_copy(
+                    update={"feature_evidence": [detail]}
+                ),
+                "live": None,
+                "match": None,
+            },
+            deep=True,
+        )
+        state = {
+            "transcript": "Find a building toy",
+            "semantic_query": "building toy",
+            "products": [product],
+        }
+
+        top = build_top_recommendation([product], state)
+
+        self.assertEqual(
+            top.reason,
+            "It is the highest-ranked grounded match for your building toy request.",
+        )
+        self.assertNotIn("Designed with", top.reason)
+
+    def test_canonical_opening_reserves_room_for_complete_reason(self) -> None:
+        reason = (
+            "Catalog evidence notes: one two three four five six seven eight nine "
+            "ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen "
+            "nineteen."
+        )
+        canonical = TopRecommendation(
+            product_key="catalog:OPENING-1",
+            title="Alpha Beta Gamma Delta Epsilon",
+            reason=reason,
+        )
+
+        answer = _canonical_answer_text(canonical)
+
+        self.assertTrue(answer.endswith(reason))
+        self.assertLessEqual(len(answer.split()), 30)
+
+    def test_canonical_title_matches_the_live_title_shown_by_the_card(self) -> None:
+        product = _product()
+        product = product.model_copy(
+            update={
+                "live": product.live.model_copy(
+                    update={"title": "Widget Alpha Current Listing"}
+                )
+            },
+            deep=True,
+        )
+
+        top = build_top_recommendation(
+            [product],
+            {"semantic_query": "widget", "products": [product]},
+        )
+
+        self.assertEqual(top.title, "Widget Alpha Current Listing")
+        self.assertEqual(top.product_key, "catalog:AMZ-WIDGET01")
+
+    async def test_one_call_natural_answer_accepts_only_grounded_cited_wording(self) -> None:
+        draft = AnswerOutput(
+            answer_text=(
+                "I’d recommend Widget Alpha first. It is the highest-ranked "
+                "grounded match for your widget request."
+            ),
+            cited_doc_ids=["AMZ-WIDGET01"],
+            cited_urls=[LIVE_URL],
+        )
+        state = {
+            "transcript": "Compare the options",
+            "semantic_query": "widget",
+            "plan": "Compare grounded evidence.",
+        }
+        with patch.dict(
+            "os.environ",
+            {
+                "NATURAL_RESPONSE_LLM": "1",
+                "LLM_PROVIDER": "anthropic",
+                "ANTHROPIC_API_KEY": "test-key",
+            },
+            clear=False,
+        ), patch("graph.answer._answer_call", new=AsyncMock(return_value=draft)):
+            result = await natural_answer_once(state, [_product()])
+
+        self.assertEqual(result, draft)
+
+    async def test_one_call_accepts_grounded_feature_paraphrase(self) -> None:
+        product = _product().model_copy(
+            update={
+                "private": _product().private.model_copy(
+                    update={
+                        "feature_evidence": [
+                            "Blue canvas exterior with padded shoulder straps"
+                        ]
+                    }
+                ),
+                "live": None,
+                "match": None,
+            },
+            deep=True,
+        )
+        draft = AnswerOutput(
+            answer_text=(
+                "I’d recommend Widget Alpha first: its blue canvas exterior and "
+                "padded shoulder straps stand out."
+            ),
+            cited_doc_ids=["AMZ-WIDGET01"],
+            cited_urls=[],
+        )
+        state = {
+            "transcript": "Find a blue canvas widget with padded straps",
+            "semantic_query": "widget",
+            "plan": "Use grounded evidence.",
+        }
+        with patch.dict(
+            "os.environ",
+            {
+                "NATURAL_RESPONSE_LLM": "1",
+                "LLM_PROVIDER": "anthropic",
+                "ANTHROPIC_API_KEY": "test-key",
+            },
+            clear=False,
+        ), patch("graph.answer._answer_call", new=AsyncMock(return_value=draft)):
+            result = await natural_answer_once(state, [product])
+
+        self.assertEqual(result, draft)
+
+    async def test_one_call_rejects_invented_feature_even_with_exact_reason(self) -> None:
+        product = _product().model_copy(
+            update={
+                "private": _product().private.model_copy(
+                    update={
+                        "feature_evidence": [
+                            "Blue canvas exterior with padded shoulder straps"
+                        ]
+                    }
+                ),
+                "live": None,
+                "match": None,
+            },
+            deep=True,
+        )
+        draft = AnswerOutput(
+            answer_text=(
+                "Widget Alpha is waterproof. Catalog evidence notes: Blue canvas "
+                "exterior with padded shoulder straps."
+            ),
+            cited_doc_ids=["AMZ-WIDGET01"],
+            cited_urls=[],
+        )
+        state = {
+            "transcript": "Find a blue canvas widget with padded straps",
+            "semantic_query": "widget",
+            "plan": "Use grounded evidence.",
+        }
+        with patch.dict(
+            "os.environ",
+            {
+                "NATURAL_RESPONSE_LLM": "1",
+                "LLM_PROVIDER": "anthropic",
+                "ANTHROPIC_API_KEY": "test-key",
+            },
+            clear=False,
+        ), patch("graph.answer._answer_call", new=AsyncMock(return_value=draft)):
+            result = await natural_answer_once(state, [product])
+
+        self.assertIsNone(result)
+
+    async def test_one_call_rejects_invented_number_even_with_exact_reason(self) -> None:
+        product = _product().model_copy(
+            update={"live": None, "match": None},
+            deep=True,
+        )
+        draft = AnswerOutput(
+            answer_text=(
+                "Widget Alpha costs $99. It is the highest-ranked grounded match "
+                "for your widget request."
+            ),
+            cited_doc_ids=["AMZ-WIDGET01"],
+            cited_urls=[],
+        )
+        state = {
+            "transcript": "Find a widget",
+            "semantic_query": "widget",
+            "plan": "Use grounded evidence.",
+        }
+        with patch.dict(
+            "os.environ",
+            {
+                "NATURAL_RESPONSE_LLM": "1",
+                "LLM_PROVIDER": "anthropic",
+                "ANTHROPIC_API_KEY": "test-key",
+            },
+            clear=False,
+        ), patch("graph.answer._answer_call", new=AsyncMock(return_value=draft)):
+            result = await natural_answer_once(state, [product])
+
+        self.assertIsNone(result)
+
+    async def test_one_call_accepts_grounded_current_price_paraphrase(self) -> None:
+        product = _product().model_copy(
+            update={
+                "live": _product().live.model_copy(
+                    update={"origin": "live_serper"}
+                )
+            },
+            deep=True,
+        )
+        draft = AnswerOutput(
+            answer_text=(
+                "Widget Alpha currently costs $21.95 and is in stock. It is the "
+                "highest-ranked grounded match for your widget request."
+            ),
+            cited_doc_ids=["AMZ-WIDGET01"],
+            cited_urls=[LIVE_URL],
+        )
+        state = {
+            "transcript": "Find the current price of Widget Alpha",
+            "semantic_query": "widget",
+            "plan": "Use grounded catalog and live evidence.",
+        }
+        with patch.dict(
+            "os.environ",
+            {
+                "NATURAL_RESPONSE_LLM": "1",
+                "LLM_PROVIDER": "anthropic",
+                "ANTHROPIC_API_KEY": "test-key",
+            },
+            clear=False,
+        ), patch("graph.answer._answer_call", new=AsyncMock(return_value=draft)):
+            result = await natural_answer_once(state, [product])
+
+        self.assertEqual(result, draft)
+
+    async def test_one_call_rejects_current_claim_for_recorded_price(self) -> None:
+        product = _product().model_copy(
+            update={
+                "live": _product().live.model_copy(
+                    update={"origin": "recorded_fixture"}
+                )
+            },
+            deep=True,
+        )
+        draft = AnswerOutput(
+            answer_text=(
+                "Widget Alpha currently costs $21.95 and is in stock. It is the "
+                "highest-ranked grounded match for your widget request."
+            ),
+            cited_doc_ids=["AMZ-WIDGET01"],
+            cited_urls=[LIVE_URL],
+        )
+        state = {
+            "transcript": "Find the price of Widget Alpha",
+            "semantic_query": "widget",
+            "plan": "Use grounded evidence.",
+        }
+        with patch.dict(
+            "os.environ",
+            {
+                "NATURAL_RESPONSE_LLM": "1",
+                "LLM_PROVIDER": "anthropic",
+                "ANTHROPIC_API_KEY": "test-key",
+            },
+            clear=False,
+        ), patch("graph.answer._answer_call", new=AsyncMock(return_value=draft)):
+            result = await natural_answer_once(state, [product])
+
+        self.assertIsNone(result)
+
+    async def test_answer_call_uses_minimal_reasoning_and_aligned_prompt(self) -> None:
+        product = _product().model_copy(
+            update={"live": None, "match": None},
+            deep=True,
+        )
+        structured = AsyncMock()
+        structured.ainvoke.return_value = AnswerOutput(
+            answer_text=(
+                "Widget Alpha is the highest-ranked grounded match for your "
+                "widget request."
+            ),
+            cited_doc_ids=["AMZ-WIDGET01"],
+            cited_urls=[],
+        )
+        llm = Mock()
+        llm.with_structured_output.return_value = structured
+        state = {
+            "transcript": "Find a widget",
+            "semantic_query": "widget",
+            "plan": "Use grounded evidence.",
+            "products": [product],
+        }
+
+        with patch.dict("os.environ", {}, clear=True), patch(
+            "graph.answer.get_llm",
+            return_value=llm,
+        ) as get_llm_mock:
+            await _answer_call(state, "grounded evidence", feedback=None)
+
+        get_llm_mock.assert_called_once_with(reasoning_effort="minimal")
+        human_prompt = structured.ainvoke.await_args.args[0][1][1]
+        self.assertIn(
+            "Preserve every grounded fact from this reason while varying the wording naturally",
+            human_prompt,
+        )
+
+    async def test_one_call_natural_answer_rejects_invented_rating(self) -> None:
+        draft = AnswerOutput(
+            answer_text="Widget Alpha has a 4.9-star catalog rating.",
+            cited_doc_ids=["AMZ-WIDGET01"],
+            cited_urls=[],
+        )
+        with patch.dict(
+            "os.environ",
+            {
+                "NATURAL_RESPONSE_LLM": "1",
+                "LLM_PROVIDER": "anthropic",
+                "ANTHROPIC_API_KEY": "test-key",
+            },
+            clear=False,
+        ), patch("graph.answer._answer_call", new=AsyncMock(return_value=draft)):
+            result = await natural_answer_once(
+                {"transcript": "Compare the options", "plan": "Compare."},
+                [_product()],
+            )
+
+        self.assertIsNone(result)
+
+    async def test_one_call_rejects_a_grounded_but_noncanonical_later_product(self) -> None:
+        top = _product().model_copy(
+            update={"live": None, "match": None},
+            deep=True,
+        )
+        later_private = top.private.model_copy(
+            update={
+                "sku": "widget-beta",
+                "title": "Widget Beta",
+                "doc_id": "AMZ-WIDGET02",
+            }
+        )
+        later = top.model_copy(
+            update={"private": later_private},
+            deep=True,
+        )
+        draft = AnswerOutput(
+            answer_text=(
+                "Widget Beta is the strongest option. It is the highest-ranked "
+                "grounded match for your widget request."
+            ),
+            cited_doc_ids=["AMZ-WIDGET02"],
+            cited_urls=[],
+        )
+        state = {
+            "transcript": "Find a widget",
+            "semantic_query": "widget",
+            "plan": "Use grounded evidence.",
+        }
+        with patch.dict(
+            "os.environ",
+            {
+                "NATURAL_RESPONSE_LLM": "1",
+                "LLM_PROVIDER": "anthropic",
+                "ANTHROPIC_API_KEY": "test-key",
+            },
+            clear=False,
+        ), patch("graph.answer._answer_call", new=AsyncMock(return_value=draft)):
+            result = await natural_answer_once(state, [top, later])
+
+        self.assertIsNone(result)
+
+    async def test_requested_size_is_not_treated_as_product_evidence(self) -> None:
+        draft = AnswerOutput(
+            answer_text="Widget Alpha comes in medium and large.",
+            cited_doc_ids=["AMZ-WIDGET01"],
+            cited_urls=[],
+        )
+        state = {
+            "transcript": "Medium or large?",
+            "plan": "Compare grounded evidence.",
+            "shopping_context": ShoppingContext(
+                product_query="widget",
+                sizes=["medium", "large"],
+                resolved_query="widget medium large",
+            ),
+        }
+        with patch.dict(
+            "os.environ",
+            {
+                "NATURAL_RESPONSE_LLM": "1",
+                "LLM_PROVIDER": "anthropic",
+                "ANTHROPIC_API_KEY": "test-key",
+            },
+            clear=False,
+        ), patch("graph.answer._answer_call", new=AsyncMock(return_value=draft)):
+            result = await natural_answer_once(state, [_product()])
+
+        self.assertIsNone(result)
+
+    def test_unconfirmed_size_uses_candidate_framing_without_a_caveat(self) -> None:
+        state = {
+            "transcript": "Medium or large?",
+            "semantic_query": "widget",
+            "plan": "Compare grounded evidence.",
+            "shopping_context": ShoppingContext(
+                product_query="widget",
+                sizes=["medium", "large"],
+                resolved_query="widget medium large",
+            ),
+        }
+
+        top = build_top_recommendation([_product()], state)
+        draft = _degraded_answer([_product()], state)
+
+        self.assertEqual(
+            top.reason,
+            "It is the closest grounded candidate for your widget request.",
+        )
+        self.assertIn("closest grounded candidate", draft.answer_text)
+        self.assertNotIn("medium", draft.answer_text)
+        self.assertNotIn("large", draft.answer_text)
+        self.assertNotIn("does not confirm", draft.answer_text)
+
+    async def test_unconfirmed_size_caveat_is_rejected(self) -> None:
+        draft = AnswerOutput(
+            answer_text=(
+                "My top choice is Widget Alpha. It is the highest-ranked "
+                "grounded match, but its evidence does not confirm medium or large."
+            ),
+            cited_doc_ids=["AMZ-WIDGET01"],
+            cited_urls=[LIVE_URL],
+        )
+        state = {
+            "transcript": "Medium or large?",
+            "plan": "Compare grounded evidence.",
+            "shopping_context": ShoppingContext(
+                product_query="widget",
+                sizes=["medium", "large"],
+                resolved_query="widget medium large",
+            ),
+        }
+        with patch.dict(
+            "os.environ",
+            {
+                "NATURAL_RESPONSE_LLM": "1",
+                "LLM_PROVIDER": "anthropic",
+                "ANTHROPIC_API_KEY": "test-key",
+            },
+            clear=False,
+        ), patch("graph.answer._answer_call", new=AsyncMock(return_value=draft)):
+            result = await natural_answer_once(state, [_product()])
+
+        self.assertIsNone(result)
+
+    async def test_paraphrased_unconfirmed_evidence_caveat_is_rejected(self) -> None:
+        draft = AnswerOutput(
+            answer_text=(
+                "My top choice is Widget Alpha. It is the closest grounded "
+                "candidate for your widget request. The evidence does not "
+                "confirm your preferred sizing."
+            ),
+            cited_doc_ids=["AMZ-WIDGET01"],
+            cited_urls=[LIVE_URL],
+        )
+        state = {
+            "transcript": "Medium or large?",
+            "semantic_query": "widget",
+            "plan": "Compare grounded evidence.",
+            "shopping_context": ShoppingContext(
+                product_query="widget",
+                sizes=["medium", "large"],
+                resolved_query="widget medium large",
+            ),
+        }
+        with patch.dict(
+            "os.environ",
+            {
+                "NATURAL_RESPONSE_LLM": "1",
+                "LLM_PROVIDER": "anthropic",
+                "ANTHROPIC_API_KEY": "test-key",
+            },
+            clear=False,
+        ), patch("graph.answer._answer_call", new=AsyncMock(return_value=draft)):
+            result = await natural_answer_once(state, [_product()])
+
+        self.assertIsNone(result)
+
     async def test_missing_live_url_triggers_retry_and_fixed_citation_is_returned(self) -> None:
         answer_call = AsyncMock(side_effect=[_draft(include_live_url=False), _draft(include_live_url=True)])
         critic_call = AsyncMock(

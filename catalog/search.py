@@ -57,16 +57,90 @@ def _terms(text: str) -> set[str]:
     }
 
 
-def _rank_score(query: str, title: str, similarity: float) -> float:
-    """Rerank vector candidates while enforcing explicit model/count numbers."""
+_FEATURE_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "for",
+    "i",
+    "is",
+    "it",
+    "me",
+    "of",
+    "or",
+    "the",
+    "to",
+    "with",
+}
+_BOILERPLATE = re.compile(
+    r"(?:make sure this fits|go to your orders|return shipping label|"
+    r"show up to \d+ reviews|product description|"
+    r"\b\d(?:\.\d)?\s*(?:out of 5|stars?)\b)",
+    re.IGNORECASE,
+)
+
+
+def _feature_segments(document: str, title: str) -> list[str]:
+    """Split real catalog detail text into bounded, useful evidence excerpts."""
+    detail = str(document or "").strip()
+    if detail.casefold().startswith(title.casefold()):
+        detail = detail[len(title) :].lstrip()
+    raw_segments = re.split(r"\s*\|\s*|\n+|(?<=[.!?])\s+", detail)
+    segments: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_segments:
+        segment = re.sub(r"\s+", " ", raw).strip(" -•\t")
+        key = segment.casefold()
+        if (
+            len(segment) < 8
+            or key in seen
+            or _BOILERPLATE.search(segment)
+        ):
+            continue
+        seen.add(key)
+        if len(segment) > 220:
+            segment = segment[:217].rsplit(" ", 1)[0].rstrip(" ,;:-") + "…"
+        segments.append(segment)
+    return segments
+
+
+def _feature_evidence(query: str, document: str, title: str) -> list[str]:
+    """Return only query-relevant excerpts copied from catalog source text."""
+    query_terms = _terms(query) - _FEATURE_STOPWORDS
+    ranked: list[tuple[float, int, str]] = []
+    for index, segment in enumerate(_feature_segments(document, title)):
+        segment_terms = _terms(segment)
+        overlap = len(query_terms & segment_terms)
+        if not overlap:
+            continue
+        coverage = overlap / max(len(query_terms), 1)
+        ranked.append((coverage + (0.08 * overlap), -index, segment))
+    ranked.sort(reverse=True)
+    return [segment for _, _, segment in ranked[:3]]
+
+
+def _rank_score(
+    query: str,
+    title: str,
+    document: str,
+    similarity: float,
+) -> float:
+    """Rerank vectors using title and grounded feature-term coverage."""
     query_terms = _terms(query)
     title_terms = _terms(title)
-    coverage = len(query_terms & title_terms) / max(len(query_terms), 1)
+    document_terms = _terms(document)
+    title_coverage = len(query_terms & title_terms) / max(len(query_terms), 1)
+    evidence_coverage = len(query_terms & document_terms) / max(len(query_terms), 1)
     query_numbers = {term for term in query_terms if term.isdigit()}
     missing_number_penalty = (
-        0.75 if query_numbers and not query_numbers.issubset(title_terms) else 0.0
+        0.75 if query_numbers and not query_numbers.issubset(document_terms) else 0.0
     )
-    return similarity + (0.35 * coverage) - missing_number_penalty
+    return (
+        similarity
+        + (0.25 * title_coverage)
+        + (0.35 * evidence_coverage)
+        - missing_number_penalty
+    )
 
 
 def search(
@@ -94,7 +168,7 @@ def search(
         # rerank. MiniLM alone often treats 500- and 1,000-piece puzzles as
         # interchangeable even though count is a material product variant.
         "n_results": min(max(result_limit * 10, 50), 200),
-        "include": ["metadatas", "distances"],
+        "include": ["metadatas", "distances", "documents"],
     }
     if where is not None:
         query_args["where"] = where
@@ -102,10 +176,17 @@ def search(
 
     metadatas = (response.get("metadatas") or [[]])[0]
     distances = (response.get("distances") or [[]])[0]
+    documents = (response.get("documents") or [[]])[0]
     results: list[dict[str, Any]] = []
-    for item, distance in zip(metadatas, distances, strict=True):
+    for item, distance, document in zip(
+        metadatas,
+        distances,
+        documents,
+        strict=True,
+    ):
         price_low = item.get("price_low")
         similarity = round(1.0 - float(distance), 6)
+        document_text = str(document or item["title"])
         result = {
             "sku": item["sku"],
             "title": item["title"],
@@ -121,7 +202,17 @@ def search(
             "price_high": item.get("price_high"),
             "similarity": similarity,
             "budget_fit": _budget_fit(item, price_max),
-            "_rank_score": _rank_score(semantic_query, item["title"], similarity),
+            "feature_evidence": _feature_evidence(
+                semantic_query,
+                document_text,
+                item["title"],
+            ),
+            "_rank_score": _rank_score(
+                semantic_query,
+                item["title"],
+                document_text,
+                similarity,
+            ),
         }
         results.append(result)
 

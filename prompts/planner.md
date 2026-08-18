@@ -34,7 +34,8 @@ the user did not state: an invented value (a made-up category, a guessed
 budget) silently excludes correct results. `category` means a real catalog
 category such as "Toys & Games", never a product description. In code, the
 final filters are taken from the Router's extracted constraints; your `k`
-(default 5) controls result count.
+(default 12) controls the candidate pool; the Retriever reranks and returns up
+to six grounded products to the interface.
 
 ## Rationale
 

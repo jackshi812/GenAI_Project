@@ -12,15 +12,20 @@ from typing import Annotated, Optional, TypedDict
 
 from pydantic import BaseModel, Field
 
-from contracts import StepEvent
+from contracts import StepEvent, TopRecommendation
 
 
 class GraphState(TypedDict, total=False):
     transcript: str
+    dialogue_context: dict
     intent: str
     constraints: dict
     safety_flags: list[str]
     turn_kind: str
+    decision_delegated: bool
+    decision_source: str
+    selected_product_index: int
+    shopping_context: object
     conversation_answer: str
     plan: str
     semantic_query: str
@@ -32,6 +37,7 @@ class GraphState(TypedDict, total=False):
     products: list
     answer_text: str
     citations: list
+    top_recommendation: TopRecommendation | None
     # Append reducer: LangGraph overwrites keys by default; operator.add makes
     # each node's returned events accumulate in execution order. Nodes return
     # {"steps": [event]} and never mutate the incoming list (D-14).

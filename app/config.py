@@ -11,8 +11,36 @@ from contracts import AssistantResult, StepEvent
 NoticeKind = Literal["caption", "warning"]
 
 
+def clarification_needed(result: AssistantResult | None) -> bool:
+    """Identify turns intentionally paused before retrieval for more detail."""
+    if result is None or result.products:
+        return False
+    if "clarifying question" in str(result.plan or "").casefold():
+        return True
+    return any(
+        "turn=clarification" in step.detail.casefold()
+        for step in result.steps
+    )
+
+
+def refinement_needed(result: AssistantResult | None) -> bool:
+    """Identify feedback turns waiting for a concrete preference change."""
+    if result is None:
+        return False
+    if "preference refinement" in str(result.plan or "").casefold():
+        return True
+    return any(
+        "turn=refinement" in step.detail.casefold()
+        for step in result.steps
+    )
+
+
 def source_mode_label(result: AssistantResult | None = None) -> str:
     """Describe returned evidence without exposing credential values."""
+    if refinement_needed(result):
+        return "Refining your choices · Search paused"
+    if clarification_needed(result):
+        return "Clarification needed · Search not started"
     tool_mode = os.getenv("TOOL_MODE", "live").strip().lower()
     if tool_mode == "fixture":
         return "Fixture graph · Recorded data"
