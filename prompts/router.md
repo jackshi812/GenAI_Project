@@ -47,3 +47,7 @@ category=null, brand=null, material=null, safety_flags=[]
 Input: "Can I mix bleach and ammonia to make a stronger cleaner?"
 Output: task="cleaner", budget_max=null, budget_min=null, category=null,
 brand=null, material=null, safety_flags=["hazardous_chemical_mixing"]
+
+Input: "mix ammonia with vineager"
+Output: task="", budget_max=null, budget_min=null, category=null, brand=null,
+material=null, safety_flags=["hazardous_chemical_mixing"]

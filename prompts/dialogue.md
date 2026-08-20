@@ -11,8 +11,8 @@ Rules:
   search, such as intended use or recipient. Lead with that useful question
   itself. Never preface it with an apology or say that you cannot understand,
   find, or narrow the request. Do not recite a category menu.
-- For `refinement`, acknowledge what the shopper disliked and ask what should
-  change next without repeating the prior answer.
+- For `refinement`, acknowledge what the shopper disliked and ask what they
+  would like instead without repeating the prior answer.
 - For `preference`, ask only for the missing value the shopper referred to.
 - For `no_match`, ask directly which product detail the shopper wants to
   specify or change to broaden the search. Never preface the question with an

@@ -39,6 +39,12 @@ _NEGATIVE_EVIDENCE_CAVEAT = re.compile(
     r"\b(?:remains?\s+)?unconfirmed\b",
     re.IGNORECASE,
 )
+_QUERY_ECHO_RATIONALE = re.compile(
+    r"\b(?:matches?|fits?)\s+your\b[^.!?\n]{0,100}\brequest\b|"
+    r"\b(?:grounded\s+)?(?:candidate|match|option)\s+for\s+your\b"
+    r"[^.!?\n]{0,100}\brequest\b",
+    re.IGNORECASE,
+)
 _REASON_BOILERPLATE_TERMS = normalized_terms(
     "catalog evidence notes it is the a an closest grounded candidate highest "
     "ranked match option for your this request and with its"
@@ -118,6 +124,8 @@ def _fast_draft_is_grounded(
         return False
 
     lower = draft.answer_text.casefold()
+    if _QUERY_ECHO_RATIONALE.search(draft.answer_text):
+        return False
     title_terms = normalized_terms(_short_title(canonical.title, limit=5))
     answer_terms = normalized_terms(draft.answer_text)
     if title_terms and not title_terms.issubset(answer_terms):
@@ -378,7 +386,7 @@ async def answerer_node(state: dict) -> dict:
         if not _fast_draft_is_grounded(draft, products, state, evidence):
             issues.append(
                 "Answer must use products[0] as the explicit Top recommendation "
-                "and repeat its supplied grounded match reason."
+                "and include only its supplied grounded details."
             )
         if issues:
             retried = True
@@ -388,7 +396,7 @@ async def answerer_node(state: dict) -> dict:
             issues = _critic_issues(critic)
             if not _fast_draft_is_grounded(draft, products, state, evidence):
                 issues.append(
-                    "Answer did not preserve the canonical top identity and reason."
+                    "Answer did not preserve the canonical top identity and grounded details."
                 )
         if issues:
             # Degrade: answer built verbatim from evidence values — grounded
@@ -418,6 +426,8 @@ async def answerer_node(state: dict) -> dict:
 def _critic_issues(critic: CriticOutput) -> list[str]:
     """Turn grounding and citation failures into one bounded retry payload."""
     issues = list(critic.ungrounded_claims)
+    if not critic.grounded and not issues:
+        issues.append("The answer contains an ungrounded claim.")
     if not critic.citations_complete:
         if critic.missing_citations:
             issues.extend(f"Missing citation: {source}" for source in critic.missing_citations)
@@ -478,13 +488,20 @@ async def _answer_call(state, evidence: str, feedback: Optional[list[str]]) -> A
             f"unconfirmed={unconfirmed or 'none'}"
         )
     canonical = build_top_recommendation(state.get("products") or [], state)
-    canonical_instruction = (
-        f"Canonical selection: name {_short_title(canonical.title, limit=5)!r} as the "
-        f"top choice. Preserve every grounded fact from this reason while varying "
-        f"the wording naturally: {canonical.reason}\n"
-        if canonical is not None
-        else ""
-    )
+    if canonical is not None and canonical.reason:
+        canonical_instruction = (
+            f"Canonical selection: name {_short_title(canonical.title, limit=5)!r} as the "
+            f"top choice. Preserve every grounded fact from this reason while varying "
+            f"the wording naturally: {canonical.reason}\n"
+        )
+    elif canonical is not None:
+        canonical_instruction = (
+            f"Canonical selection: name {_short_title(canonical.title, limit=5)!r} as the "
+            "top choice. Do not invent or echo a fit rationale; use only supplied "
+            "product evidence.\n"
+        )
+    else:
+        canonical_instruction = ""
     human = (
         f"User request: {state['transcript']}\n"
         + canonical_instruction
@@ -509,10 +526,12 @@ async def _answer_call(state, evidence: str, feedback: Optional[list[str]]) -> A
 def _canonical_answer_text(canonical) -> str:
     """Name one graph-selected product naturally, then repeat its grounded reason."""
     title = _short_title(canonical.title, limit=5)
+    if not canonical.reason.strip():
+        return f"I found {title}."
     openings = (
         f"My top choice is {title}.",
         f"I’d recommend {title} first.",
-        f"{title} is the strongest grounded option here.",
+        f"I’d start with {title}.",
     )
     digest = hashlib.blake2s(
         canonical.product_key.encode("utf-8"),
@@ -530,7 +549,7 @@ def _canonical_answer_text(canonical) -> str:
     opening = eligible_openings[
         int.from_bytes(digest, "big") % len(eligible_openings)
     ]
-    return f"{opening} {canonical.reason}"
+    return f"{opening} {canonical.reason}".strip()
 
 
 async def _critic_call(draft: AnswerOutput, evidence: str) -> CriticOutput:

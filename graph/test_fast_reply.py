@@ -135,6 +135,7 @@ class FastReplyTests(unittest.TestCase):
             semantic_query("I asked for something blue"),
             "something blue",
         )
+        self.assertEqual(semantic_query("Give bag adults"), "bag adults")
 
     def test_semantic_query_removes_greeting_from_shopping_request(self) -> None:
         self.assertEqual(
@@ -300,6 +301,55 @@ class FastReplyTests(unittest.TestCase):
         self.assertTrue(reply.live_followup_needed)
         self.assertIn("doesn’t confirm enough", reply.text)
 
+    def test_plural_adult_bag_does_not_present_the_wildkin_kids_result(self) -> None:
+        calls = []
+        wildkin = _catalog_result(
+            title=(
+                "Wildkin Kids Overnighter Duffel Bag for Boys and Girls, "
+                "Carry-On Size"
+            ),
+            similarity=0.99,
+        )
+
+        def fake_search(**kwargs):
+            calls.append(kwargs)
+            return [wildkin]
+
+        reply = asyncio.run(
+            build_fast_reply(
+                "Give bag adults",
+                search_fn=fake_search,
+                dialogue_context={
+                    "shopping_context": {
+                        "product_query": "bag",
+                        "resolved_query": "bag",
+                    }
+                },
+            )
+        )
+
+        self.assertEqual(calls[0]["query"], "bag")
+        self.assertEqual(reply.shopping_context.sizes, ["adult"])
+        self.assertEqual(reply.turn_kind, "web_fallback")
+        self.assertIsNone(reply.product)
+        self.assertNotIn("Wildkin", reply.text)
+        self.assertLessEqual(len(reply.text.split()), 30)
+
+    def test_fast_catalog_prose_never_echoes_the_semantic_query_as_a_reason(self) -> None:
+        reply = asyncio.run(
+            build_fast_reply(
+                "Give bag",
+                search_fn=lambda **_: [
+                    _catalog_result(title="Canvas Travel Bag", similarity=0.99)
+                ],
+            )
+        )
+
+        self.assertIn("$13.99", reply.text)
+        self.assertNotIn("matches your", reply.text.casefold())
+        self.assertNotIn("fits your bag request", reply.text.casefold())
+        self.assertLessEqual(len(reply.text.split()), 30)
+
     def test_rejecting_results_asks_for_a_preference_without_searching(self) -> None:
         def fail_search(**_):
             self.fail("feedback about prior results must not become a product search")
@@ -321,8 +371,24 @@ class FastReplyTests(unittest.TestCase):
         self.assertEqual(reply.turn_kind, "refinement")
         self.assertFalse(reply.live_followup_needed)
         self.assertIsNone(reply.product)
-        self.assertIn("What should I adjust", reply.text)
+        self.assertIn("what would you like instead", reply.text.casefold())
         self.assertIn("$20 limit", reply.text)
+
+    def test_ammonia_vineager_mix_warns_without_searching(self) -> None:
+        def fail_search(**_):
+            self.fail("a hazardous mixing request must not trigger retrieval")
+
+        reply = asyncio.run(
+            build_fast_reply(
+                "mix ammonia with vineager",
+                search_fn=fail_search,
+            )
+        )
+
+        self.assertEqual(reply.turn_kind, "safety")
+        self.assertFalse(reply.live_followup_needed)
+        self.assertIsNone(reply.product)
+        self.assertIn("safety warning", reply.text.casefold())
 
     def test_incomplete_preference_change_asks_for_the_missing_value(self) -> None:
         def fail_search(**_):
@@ -407,6 +473,28 @@ class FastReplyTests(unittest.TestCase):
         self.assertEqual(reply.turn_kind, "conversation")
         self.assertIn("doing well", reply.text)
         self.assertIsNone(reply.product)
+
+    def test_navigation_and_termination_phrases_do_not_search_the_catalog(self) -> None:
+        def fail_search(**_):
+            self.fail("conversation control must not trigger product retrieval")
+
+        previous = {
+            "product_query": "bag",
+            "resolved_query": "bag",
+        }
+        for text in ("Oh no go back", "search result", "Okay that's all"):
+            with self.subTest(text=text):
+                reply = asyncio.run(
+                    build_fast_reply(
+                        text,
+                        search_fn=fail_search,
+                        dialogue_context={"shopping_context": previous},
+                    )
+                )
+                self.assertEqual(reply.turn_kind, "conversation")
+                self.assertFalse(reply.live_followup_needed)
+                self.assertIsNone(reply.product)
+                self.assertLessEqual(len(reply.text.split()), 30)
 
     def test_greeting_does_not_override_a_shopping_request(self) -> None:
         calls = []

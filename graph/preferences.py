@@ -126,6 +126,11 @@ _RELATIVE_SIZES = {
     "xxl",
     "youth",
 }
+_ADULT_AUDIENCE = re.compile(
+    r"\b(?:adults?|men|women|unisex)\b",
+    re.IGNORECASE,
+)
+_ADULT_EVIDENCE_TERMS = {"adult", "men", "unisex", "women"}
 _CHANGE_CUES = re.compile(
     r"\b(?:actually|also|but|change|different|instead|make (?:it|them)|more|"
     r"less|prefer|rather|switch|need (?:it|them)|want (?:it|them)|with|without)\b",
@@ -577,6 +582,13 @@ def is_new_product_request(
     if _CHANGE_CUES.search(text) or _CONTEXT_PRONOUNS.search(text):
         return False
     prior_terms = normalized_terms(previous.product_query) if previous else set()
+    if (
+        previous is not None
+        and has_actionable_preference(text)
+        and meaningful
+        and meaningful.issubset(prior_terms)
+    ):
+        return False
     if any(
         prior_terms & product_terms and meaningful & feature_terms
         for product_terms, feature_terms in _FOLLOWUP_FEATURE_TERMS
@@ -633,6 +645,8 @@ def _sizes(text: str) -> list[str]:
                 f"size {value}" if pattern is _SIZE_PATTERNS[0] else value
             )
     values.extend(_phrase_hits(text, _RELATIVE_SIZES))
+    if _ADULT_AUDIENCE.search(text):
+        values.append("adult")
     return _dedupe(values)
 
 
@@ -832,6 +846,8 @@ def _strip_facets(
                     value,
                     flags=re.I,
                 )
+    if "adult" in updates.get("sizes", []):
+        value = _ADULT_AUDIENCE.sub(" ", value)
     value = _RECIPIENT_PHRASE.sub(" ", value)
     for match in _RECIPIENT_PHRASE.finditer(transcript):
         phrase = match.group(0).strip()
@@ -1169,7 +1185,9 @@ def matched_preferences(
     for requirement in preference_requirements(context):
         terms = normalized_terms(requirement)
         size_match = re.fullmatch(r"size\s+(.+)", requirement, re.I)
-        if size_match:
+        if requirement == "adult":
+            supported = bool(evidence_terms & _ADULT_EVIDENCE_TERMS)
+        elif size_match:
             size_value = size_match.group(1).strip()
             if re.fullmatch(r"\d+(?:\.\d+)?", size_value):
                 supported = bool(

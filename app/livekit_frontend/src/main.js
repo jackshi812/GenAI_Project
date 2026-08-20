@@ -23,6 +23,10 @@ import {
   createTypedTurnEpoch,
   synchronizeTypedTurn,
 } from "./typed_audio.js";
+import {
+  pauseMicrophone,
+  resumeMicrophone,
+} from "./microphone_session.js";
 
 const elements = {
   audio: document.getElementById("agent-audio"),
@@ -44,6 +48,7 @@ const elements = {
 let config = null;
 let room = null;
 let connectedRoom = null;
+let microphoneActive = false;
 let startedAt = null;
 let timerHandle = null;
 let lastResultId = null;
@@ -198,6 +203,15 @@ function endTimer() {
   elements.timer.textContent = "00:00";
 }
 
+function renderMicrophoneOff() {
+  microphoneActive = false;
+  setStatus("Microphone off", "idle");
+  elements.start.classList.remove("hidden");
+  elements.stop.classList.add("hidden");
+  elements.voiceHint.textContent = "Type a message or start the microphone.";
+  endTimer();
+}
+
 async function handleTranscription(reader, participantInfo) {
   try {
     const attributes = reader.info?.attributes || {};
@@ -345,11 +359,7 @@ function configureRoom(nextRoom) {
       }
     })
     .on(RoomEvent.Disconnected, () => {
-      setStatus("Microphone off", "idle");
-      elements.start.classList.remove("hidden");
-      elements.stop.classList.add("hidden");
-      elements.voiceHint.textContent = "Type a message or start the microphone.";
-      endTimer();
+      renderMicrophoneOff();
     });
 }
 
@@ -385,7 +395,8 @@ async function startConversation() {
     await room.startAudio();
     setStatus("Your assistant is joining…", "thinking");
     await waitForAgent(room);
-    await room.localParticipant.setMicrophoneEnabled(true);
+    await resumeMicrophone(room);
+    microphoneActive = true;
     beginVoiceTurn();
     elements.start.classList.add("hidden");
     elements.stop.classList.remove("hidden");
@@ -404,10 +415,24 @@ async function startConversation() {
 }
 
 async function stopConversation() {
-  if (room) await room.disconnect();
-  room = null;
-  connectedRoom = null;
-  setStatus("Microphone off", "idle");
+  clearError();
+  try {
+    room = await pauseMicrophone(room);
+  } catch (_error) {
+    // If muting fails, disconnect so the browser never leaves a possibly-live
+    // microphone running behind an "off" control.
+    try {
+      if (room) await room.disconnect();
+    } catch (_disconnectError) {
+      // The mute failure remains the actionable error; disconnect is best effort.
+    }
+    room = null;
+    connectedRoom = null;
+    showError(
+      "The microphone could not be paused safely, so the live session was disconnected.",
+    );
+  }
+  renderMicrophoneOff();
 }
 
 function submitTypedMessage(event) {
@@ -448,6 +473,7 @@ async function restartChat() {
   if (room) await room.disconnect();
   room = null;
   connectedRoom = null;
+  microphoneActive = false;
   endTimer();
   resetMessages();
   clearError();
@@ -500,7 +526,10 @@ async function applyExternalTurn(turn) {
           "Answer audio could not start. Use “Replay the latest spoken answer” below.",
         );
       }
-      setStatus("Ready for your next question", room ? "listening" : "idle");
+      setStatus(
+        "Ready for your next question",
+        microphoneActive ? "listening" : "idle",
+      );
       const committed = externalTurnCommittedEvent(completedTurn.request_id);
       if (committed) Streamlit.setComponentValue(committed);
     },

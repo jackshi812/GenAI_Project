@@ -20,6 +20,13 @@ from dotenv import load_dotenv
 # repository-root .env file. Existing shell variables keep precedence.
 load_dotenv(REPO_ROOT / ".env")
 
+from app.cart import (
+    add_to_cart,
+    canonical_product_key,
+    clear_cart,
+    is_in_cart,
+    remove_from_cart,
+)
 from app.config import (
     clarification_needed,
     live_evidence_notice,
@@ -36,9 +43,13 @@ from app.product_grid import (
     MAX_GRID_PRODUCTS,
     SHOPPING_GRID_CSS,
     comparison_rows,
-    shopping_grid_html,
+    format_money,
+    prepare_product_cards,
+    product_card_html,
+    product_display,
+    summarize_cart_prices,
 )
-from contracts import AssistantResult
+from contracts import AssistantResult, ComparisonProduct
 from graph.build import run_graph
 from graph.fast_reply import (
     contextualize_followup,
@@ -52,6 +63,209 @@ DEFAULT_TRANSCRIPT = (
     "Compare the current price of the Nerf N Strike Elite Strongarm blaster "
     "with the catalog price."
 )
+
+
+def _cart_widget_key(action: str, product_key: str, index: int) -> str:
+    """Build a stable native-widget key from action, identity, and position."""
+    return f"cart-{action}-{index}-{product_key}"
+
+
+def _add_cart_product(product: ComparisonProduct) -> None:
+    """Replace cart state with a pure ordered add result."""
+    st.session_state.cart_products = add_to_cart(
+        st.session_state.cart_products,
+        product,
+    )
+
+
+def _remove_cart_product(product_key: str) -> None:
+    """Replace cart state with a pure targeted removal result."""
+    st.session_state.cart_products = remove_from_cart(
+        st.session_state.cart_products,
+        product_key,
+    )
+
+
+def _clear_cart_products() -> None:
+    """Replace cart state with a fresh empty list."""
+    st.session_state.cart_products = clear_cart(st.session_state.cart_products)
+
+
+def _render_product_cards(result: AssistantResult) -> None:
+    """Pair each ordered card with exactly one native cart action."""
+    web_steps = [step for step in result.steps if step.tool == "web.search"]
+    prepared_cards = prepare_product_cards(
+        result.products,
+        web_steps,
+        result.top_recommendation,
+    )
+    for row_start in range(0, len(prepared_cards), 3):
+        columns = st.columns(3, gap="small")
+        for prepared, column in zip(
+            prepared_cards[row_start : row_start + 3],
+            columns,
+        ):
+            with column:
+                with st.container(
+                    height="stretch",
+                    border=False,
+                    vertical_alignment="distribute",
+                    gap="small",
+                ):
+                    st.markdown(
+                        product_card_html(
+                            prepared.product,
+                            prepared.web_step,
+                            prepared.top_recommendation,
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                    product_key = canonical_product_key(prepared.product)
+                    if not product_key:
+                        st.button(
+                            "Unavailable",
+                            key=f"cart-unavailable-{prepared.index}",
+                            disabled=True,
+                            use_container_width=True,
+                        )
+                    else:
+                        widget_key = _cart_widget_key(
+                            "add",
+                            product_key,
+                            prepared.index,
+                        )
+                        if is_in_cart(
+                            st.session_state.cart_products,
+                            product_key,
+                        ):
+                            st.button(
+                                "Added ✓",
+                                key=widget_key,
+                                disabled=True,
+                                use_container_width=True,
+                            )
+                        else:
+                            st.button(
+                                "Add to cart",
+                                key=widget_key,
+                                use_container_width=True,
+                                on_click=_add_cart_product,
+                                args=(prepared.product,),
+                            )
+
+
+def _render_cart() -> None:
+    """Render the browser-session shortlist without touching search state."""
+    cart_products = list(st.session_state.cart_products)
+    with st.expander(f"Cart ({len(cart_products)})", expanded=bool(cart_products)):
+        st.caption(
+            "Session-local shortlist only — this demo does not perform checkout "
+            "or purchase anything."
+        )
+        if not cart_products:
+            st.caption("No products saved in this browser session yet.")
+            return
+
+        for index, product in enumerate(cart_products):
+            display = product_display(product)
+            product_key = canonical_product_key(product)
+            with st.container(border=True):
+                image, details, action = st.columns(
+                    [1.35, 4, 1],
+                    gap="medium",
+                    vertical_alignment="center",
+                )
+                with image:
+                    if display.image_url is not None:
+                        st.image(display.image_url, width="stretch")
+                    else:
+                        st.caption("Image unavailable")
+                with details:
+                    st.text(display.title)
+                    st.text(
+                        f"{display.price_label}: {display.formatted_price}"
+                    )
+                    st.text(
+                        "Sources: "
+                        + (" + ".join(display.source_labels) or "Unavailable")
+                    )
+                    if display.link is not None:
+                        st.link_button(
+                            "View grounded listing",
+                            display.link,
+                        )
+                    else:
+                        st.caption("Grounded listing link unavailable.")
+                with action:
+                    st.button(
+                        "Remove",
+                        key=_cart_widget_key("remove", product_key, index),
+                        use_container_width=True,
+                        on_click=_remove_cart_product,
+                        args=(product_key,),
+                    )
+
+        price_summary = summarize_cart_prices(cart_products)
+        st.divider()
+        if price_summary.included_count:
+            noun = "item" if price_summary.included_count == 1 else "items"
+            st.markdown(
+                "**Estimated total "
+                f"({price_summary.included_count} {noun}): "
+                f"{format_money(price_summary.total)}**"
+            )
+            st.caption(
+                "Sum of displayed numeric prices from: "
+                + " + ".join(price_summary.price_sources)
+                + ". Taxes, shipping, and retailer changes are not included."
+            )
+        else:
+            st.markdown("**Estimated total: unavailable**")
+        if price_summary.excluded_count:
+            noun = "item" if price_summary.excluded_count == 1 else "items"
+            verb = "was" if price_summary.excluded_count == 1 else "were"
+            st.caption(
+                f"{price_summary.excluded_count} {noun} {verb} not included "
+                "because the displayed price is missing or non-numeric."
+            )
+
+        st.button(
+            "Clear cart",
+            key="cart-clear",
+            use_container_width=True,
+            on_click=_clear_cart_products,
+        )
+
+
+def _render_agent_step_log(result: AssistantResult) -> None:
+    """Render complete step details without a horizontally clipped grid."""
+    total_ms = sum(step.duration_ms or 0 for step in result.steps)
+    completed_steps = sum(step.status == "completed" for step in result.steps)
+    error_steps = sum(step.status == "error" for step in result.steps)
+    status_summary = f"{completed_steps} completed"
+    if error_steps:
+        status_summary += f" · {error_steps} errors"
+
+    with st.expander(
+        f"Agent step log · {len(result.steps)} events · {status_summary} · "
+        f"{total_ms} ms",
+        expanded=False,
+    ):
+        if not result.steps:
+            st.caption("No agent steps were recorded for this turn.")
+            return
+        for index, step in enumerate(result.steps, start=1):
+            duration = (
+                f"{step.duration_ms} ms"
+                if step.duration_ms is not None
+                else "Duration unavailable"
+            )
+            with st.container(border=True):
+                st.markdown(
+                    f"**{index}. {step.node}** · `{step.tool or 'No tool'}` · "
+                    f"{step.status} · {duration}"
+                )
+                st.caption(step.detail)
 
 
 def _render_evidence(result: AssistantResult, source_mode: str) -> None:
@@ -72,16 +286,8 @@ def _render_evidence(result: AssistantResult, source_mode: str) -> None:
             "These are your previous results. Tell me what you want changed, "
             "and I’ll search for better alternatives."
         )
-    web_steps = [step for step in result.steps if step.tool == "web.search"]
     if products:
-        st.markdown(
-            shopping_grid_html(
-                products,
-                web_steps,
-                top_recommendation=result.top_recommendation,
-            ),
-            unsafe_allow_html=True,
-        )
+        _render_product_cards(result)
     elif not refining:
         st.info("No grounded product results were found for this request.")
 
@@ -99,30 +305,7 @@ def _render_evidence(result: AssistantResult, source_mode: str) -> None:
         else:
             st.caption("There are no products to compare for this turn.")
 
-    total_ms = sum(step.duration_ms or 0 for step in result.steps)
-    completed_steps = sum(step.status == "completed" for step in result.steps)
-    error_steps = sum(step.status == "error" for step in result.steps)
-    status_summary = f"{completed_steps} completed"
-    if error_steps:
-        status_summary += f" · {error_steps} errors"
-    with st.expander(
-        f"Agent step log · {len(result.steps)} events · {status_summary} · {total_ms} ms",
-        expanded=False,
-    ):
-        st.dataframe(
-            [
-                {
-                    "node": step.node,
-                    "tool": step.tool or "—",
-                    "duration_ms": step.duration_ms,
-                    "status": step.status,
-                    "detail": step.detail,
-                }
-                for step in result.steps
-            ],
-            hide_index=True,
-            width="stretch",
-        )
+    _render_agent_step_log(result)
 
     with st.expander("Sources & citations", expanded=False):
         st.markdown("**Catalog**")
@@ -157,7 +340,10 @@ def _render_evidence(result: AssistantResult, source_mode: str) -> None:
                 st.caption("Live-only fallback; no catalog comparison was possible.")
                 continue
             if product.match is None:
-                st.caption("No live match to evaluate.")
+                st.caption(
+                    "No live comparison is available, so no similarity score "
+                    "can be calculated."
+                )
             else:
                 st.write(
                     f"{product.match.similarity:.1%} similarity · "
@@ -227,6 +413,8 @@ _SESSION_DEFAULTS = {
 for state_key, default_value in _SESSION_DEFAULTS.items():
     if state_key not in st.session_state:
         st.session_state[state_key] = default_value
+if "cart_products" not in st.session_state:
+    st.session_state.cart_products = []
 if "livekit_room" not in st.session_state:
     st.session_state.livekit_room = new_room_name()
 if "livekit_identity" not in st.session_state:
@@ -286,6 +474,8 @@ with left:
         elif event_type == "restart_chat":
             for state_key, default_value in _SESSION_DEFAULTS.items():
                 st.session_state[state_key] = default_value
+            if event_id:
+                st.session_state.last_component_event_id = event_id
             st.session_state.livekit_room = new_room_name()
             st.session_state.livekit_identity = new_identity()
             st.rerun()
@@ -498,6 +688,8 @@ if sync_component:
     st.rerun()
 
 result: AssistantResult | None = st.session_state.assistant_result
+with right:
+    _render_cart()
 if result is not None and st.session_state.awaiting_ui_commit:
     with right:
         _render_pending_fast(

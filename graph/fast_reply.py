@@ -43,8 +43,10 @@ from graph.response_style import (
     is_delegated_choice,
     is_rejection_followup,
     is_vague_shopping_query,
+    refinement_reply,
     web_recommendation,
 )
+from graph.safety import SAFETY_RATIONALE, is_hazardous_chemical_mixing
 
 
 _LIVE_TERMS = re.compile(
@@ -178,6 +180,21 @@ _CART_COMPLETION_PATTERN = re.compile(
     r"(?:(?:my|our|the)\s*)?cart\s*[.!?]*\s*$",
     re.IGNORECASE,
 )
+_BACK_PATTERN = re.compile(
+    r"^\s*(?:(?:oh|okay|ok)[\s,;:!.-]+)?(?:no[\s,;:!.-]+)?"
+    r"(?:go\s+)?back\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
+_SEARCH_RESULT_PATTERN = re.compile(
+    r"^\s*(?:the\s+)?search\s+results?\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
+_TERMINATION_PATTERN = re.compile(
+    r"^\s*(?:(?:okay|ok|great|thanks|thank\s+you)[\s,;:!.-]+)?"
+    r"(?:that(?:['’]s|\s+is)\s+all|(?:i(?:['’]m|\s+am)|we(?:['’]re|\s+are))\s+done|"
+    r"all\s+done)\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
 _SHOPPING_REQUEST_PATTERN = re.compile(
     r"\b(?:i\s+(?:need|want|would like)|(?:i(?:'m| am)\s+)?looking for|"
     r"find|show|recommend|compare|buy|shop|shopping|product|price|cost|"
@@ -230,6 +247,7 @@ class FastReply:
     live_followup_needed: bool
     turn_kind: Literal[
         "conversation",
+        "safety",
         "clarification",
         "refinement",
         "selection",
@@ -356,7 +374,7 @@ def semantic_query(transcript: str) -> str:
     query = re.sub(
         r"\b(?:please|can you|could you|would you|i need|i want|"
         r"i (?:asked|am asking|was asking) for|find me|find|"
-        r"show me|compare|check|the price of|price of|price|catalog|with|the|"
+        r"show me|give me|give|compare|check|the price of|price of|price|catalog|with|the|"
         r"a|an|some|for me)\b",
         " ",
         query,
@@ -407,7 +425,14 @@ def extract_brand(transcript: str) -> str | None:
 
 
 def _conversation_reply(transcript: str) -> str | None:
-    if _CART_COMPLETION_PATTERN.fullmatch(str(transcript or "")):
+    text = str(transcript or "")
+    if _BACK_PATTERN.fullmatch(text):
+        return "Sure—let’s go back. What would you like to change?"
+    if _SEARCH_RESULT_PATTERN.fullmatch(text):
+        return "Those are the search results. What would you like to adjust?"
+    if _TERMINATION_PATTERN.fullmatch(text):
+        return "All set. Come back anytime you’d like help shopping."
+    if _CART_COMPLETION_PATTERN.fullmatch(text):
         return "Great—what would you like to shop for next?"
     has_shopping_request = bool(_SHOPPING_REQUEST_PATTERN.search(transcript))
     if (
@@ -466,16 +491,49 @@ async def build_fast_reply(
     """Return one fast grounded reply, using the LLM only for delegated choices."""
     started = time.perf_counter()
     context = dialogue_context or {}
+    prior_shopping_context = context.get("shopping_context")
+    if is_hazardous_chemical_mixing(transcript):
+        shopping_context = (
+            ShoppingContext.model_validate(prior_shopping_context)
+            if prior_shopping_context is not None
+            else ShoppingContext()
+        )
+        return FastReply(
+            text=SAFETY_RATIONALE,
+            product=None,
+            citations=(),
+            elapsed_ms=int((time.perf_counter() - started) * 1_000),
+            live_followup_needed=False,
+            turn_kind="safety",
+            shopping_context=shopping_context,
+        )
     budget_min, budget_max = extract_budget_bounds(transcript)
     explicit_delegated = is_delegated_choice(transcript)
-    prior_shopping_context = context.get("shopping_context")
-    base_query = semantic_query(transcript)
-    shopping_context = await resolve_preferences(
-        transcript,
-        base_query,
-        prior_shopping_context,
-        allow_llm=False,
+    explicit_actionable_preference = has_actionable_preference(transcript)
+    rejection = is_rejection_followup(transcript)
+    bare_rejection = bool(
+        rejection and not explicit_actionable_preference and not explicit_delegated
     )
+    base_query = semantic_query(transcript)
+    if bare_rejection:
+        shopping_context = (
+            ShoppingContext.model_validate(prior_shopping_context)
+            if prior_shopping_context is not None
+            else ShoppingContext()
+        ).model_copy(
+            update={
+                "is_followup": prior_shopping_context is not None,
+                "preference_changed": False,
+            },
+            deep=True,
+        )
+    else:
+        shopping_context = await resolve_preferences(
+            transcript,
+            base_query,
+            prior_shopping_context,
+            allow_llm=False,
+        )
     delegated = explicit_delegated or bool(
         is_vague_shopping_query(shopping_context.product_query)
         and (
@@ -486,7 +544,7 @@ async def build_fast_reply(
     actionable_preference = (
         not delegated
         and (
-            has_actionable_preference(transcript)
+            explicit_actionable_preference
             or shopping_context.preference_changed
         )
     )
@@ -611,18 +669,11 @@ async def build_fast_reply(
 
     if (
         not delegated
-        and is_rejection_followup(transcript)
+        and rejection
         and not actionable_preference
     ):
         return FastReply(
-            text=await natural_dialogue_reply(
-                "refinement",
-                transcript,
-                budget_max,
-                previous_request=str(context.get("previous_request") or ""),
-                previous_answer=str(context.get("previous_answer") or ""),
-                allow_llm=allow_dialogue_llm,
-            ),
+            text=refinement_reply(budget_max),
             product=None,
             citations=(),
             elapsed_ms=int((time.perf_counter() - started) * 1_000),

@@ -185,12 +185,12 @@ def refinement_reply(budget_max: float | None) -> str:
     """Acknowledge rejected results and ask for one actionable preference."""
     if budget_max is not None:
         return (
-            "Got it—let’s change direction. What should I adjust: the product "
-            f"type, brand, or a specific feature? I’ll keep your ${budget_max:,.0f} limit."
+            "Got it—what would you like instead: a different product type, "
+            f"brand, or feature? I’ll keep your ${budget_max:,.0f} limit."
         )
     return (
-        "Got it—let’s change direction. What should I adjust: the product "
-        "type, price, brand, or a specific feature?"
+        "Got it—what would you like instead: a different product type, price, "
+        "brand, or feature?"
     )
 
 
@@ -404,26 +404,12 @@ def catalog_recommendation(
                 f"The 2020 catalog price was {price}; its current web price is {current}."
             )
     elif fits_budget and price:
-        if need and not feature:
-            reasons.append(
-                f"It matches your {need} request. At {price} in the 2020 "
-                f"catalog, it fits your ${budget_max:,.0f} budget."
-            )
-        else:
-            reasons.append(
-                f"At {price} in the 2020 catalog, it fits your "
-                f"${budget_max:,.0f} budget."
-            )
-    elif need and price:
-        subject = "That" if feature else "It"
         reasons.append(
-            f"{subject} matches your {need} request at a {price} 2020 catalog price."
+            f"At {price} in the 2020 catalog, it fits your "
+            f"${budget_max:,.0f} budget."
         )
     elif price:
         reasons.append(f"Its 2020 catalog price is {price}.")
-    elif need:
-        subject = "That" if feature else "It"
-        reasons.append(f"{subject} matches your {need} request.")
 
     live_sentence = "I’m checking current listings too." if checking_live else ""
     text = " ".join(part for part in [opening, *reasons, live_sentence] if part)
@@ -443,8 +429,6 @@ def catalog_recommendation(
         compact += (
             f" Its {price} catalog price fits your ${budget_max:,.0f} budget."
         )
-    elif need:
-        compact += f" It matches your {need} request."
     elif price:
         compact += f" Its 2020 catalog price is {price}."
     if checking_live:
@@ -495,14 +479,8 @@ def web_recommendation(
             reasons.append(
                 f"Its {price_source} is {price}, above your ${budget_max:,.0f} budget."
             )
-    elif need and price:
-        reasons.append(
-            f"It matches your {need} request at a {price} {price_source}."
-        )
     elif price:
         reasons.append(f"Its {price_source} is {price}.")
-    elif need:
-        reasons.append(f"It matches your {need} request.")
 
     text = " ".join([opening, *reasons])
     if len(text.split()) <= 30:
@@ -519,8 +497,6 @@ def web_recommendation(
     )
     if price:
         compact += f" Its {price_source} is {price}."
-    elif need:
-        compact += f" It matches your {need} request."
     return compact
 
 

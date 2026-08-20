@@ -105,13 +105,13 @@ class ResponseStyleTests(unittest.TestCase):
 
     def test_rejection_is_dialogue_feedback_not_a_product_query(self) -> None:
         self.assertTrue(is_rejection_followup("I don't like them"))
+        self.assertTrue(is_rejection_followup("I don't like it"))
         self.assertTrue(is_rejection_followup("None of these work for me"))
         self.assertTrue(is_rejection_followup("Show me something different"))
         self.assertFalse(is_rejection_followup("Find dolls I like"))
 
         text = refinement_reply(20.0)
-        self.assertIn("change direction", text)
-        self.assertIn("what should i adjust", text.casefold())
+        self.assertIn("what would you like instead", text.casefold())
         self.assertIn("$20 limit", text)
         self.assertLessEqual(len(text.split()), 30)
 

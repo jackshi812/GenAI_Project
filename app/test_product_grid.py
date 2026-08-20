@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import unittest
 
-from app.product_grid import comparison_rows, product_card_html, shopping_grid_html
+from app.product_grid import (
+    comparison_rows,
+    prepare_product_cards,
+    product_card_html,
+    product_display,
+    shopping_grid_html,
+)
 from contracts import (
     ComparisonProduct,
     Conflict,
     MatchInfo,
     RagResult,
+    StepEvent,
     TopRecommendation,
     WebResult,
 )
@@ -66,6 +73,124 @@ def _ranked_products(count: int) -> list[ComparisonProduct]:
 
 
 class ProductGridTests(unittest.TestCase):
+    def test_display_metadata_matches_the_grounded_card_field_selection(self) -> None:
+        product = ComparisonProduct(
+            private=_private_product(),
+            live=_live_product(),
+            conflicts=[],
+            match=None,
+        )
+
+        display = product_display(product)
+        rendered = product_card_html(product)
+
+        self.assertEqual(display.title, _live_product().title)
+        self.assertEqual(display.primary_price, 21.95)
+        self.assertEqual(display.formatted_price, "$21.95")
+        self.assertEqual(display.price_label, "Current web price")
+        self.assertEqual(display.source_labels, ("Catalog", "Web search"))
+        self.assertEqual(display.link, "https://example.com/live-product")
+        self.assertIn(display.title, rendered)
+        self.assertIn('shopping-card__whole">21</span>', rendered)
+        self.assertIn(display.price_label, rendered)
+
+    def test_web_price_provenance_is_shared_by_cards_and_comparisons(self) -> None:
+        expected_labels = {
+            "live_serper": "Current web price",
+            "recorded_fixture": "Recorded web price",
+            "unknown": "Web price",
+        }
+
+        for origin, expected_label in expected_labels.items():
+            with self.subTest(origin=origin):
+                product = ComparisonProduct(
+                    private=_private_product(),
+                    live=_live_product().model_copy(update={"origin": origin}),
+                    conflicts=[],
+                    match=None,
+                )
+
+                display = product_display(product)
+                rendered = product_card_html(product)
+                row = comparison_rows([product])[0]
+
+                self.assertEqual(display.price_label, expected_label)
+                self.assertIn(expected_label, rendered)
+                self.assertEqual(row["Price source"], expected_label)
+
+    def test_display_metadata_preserves_raw_and_missing_prices_and_safe_links(self) -> None:
+        raw_private = _private_product().model_copy(
+            update={
+                "price": "$12 - $18",
+                "price_low": None,
+                "price_high": None,
+                "product_url": "javascript:alert(1)",
+            }
+        )
+        raw_product = ComparisonProduct(
+            private=raw_private,
+            live=None,
+            conflicts=[],
+            match=None,
+        )
+        missing_product = ComparisonProduct(
+            private=None,
+            live=_live_product().model_copy(
+                update={"price": None, "url": "data:text/html,bad"}
+            ),
+            conflicts=[],
+            match=None,
+        )
+
+        raw_display = product_display(raw_product)
+        missing_display = product_display(missing_product)
+
+        self.assertEqual(raw_display.primary_price, "$12 - $18")
+        self.assertEqual(raw_display.formatted_price, "$12 - $18")
+        self.assertEqual(raw_display.price_label, "2020 catalog price")
+        self.assertIsNone(raw_display.link)
+        self.assertIsNone(missing_display.primary_price)
+        self.assertEqual(missing_display.formatted_price, "—")
+        self.assertEqual(missing_display.price_label, "Price")
+        self.assertEqual(missing_display.source_labels, ("Web search",))
+        self.assertIsNone(missing_display.link)
+
+    def test_prepared_cards_cap_order_steps_and_canonical_top_treatment(self) -> None:
+        products = _ranked_products(8)
+        steps = [
+            StepEvent(
+                node="retriever",
+                tool="web.search",
+                started_at=f"2026-08-19T00:00:0{index}Z",
+                duration_ms=index,
+                status="completed",
+                detail=f"Web step {index}",
+            )
+            for index in range(8)
+        ]
+        top = TopRecommendation(
+            product_key="catalog:AMZ-RANKED-00",
+            title="Ranked Product 00",
+            reason="Graph-owned canonical recommendation.",
+        )
+
+        prepared = prepare_product_cards(products, steps, top)
+
+        self.assertEqual(len(prepared), 6)
+        self.assertEqual([item.index for item in prepared], list(range(6)))
+        self.assertEqual(
+            [item.display.title for item in prepared],
+            [f"Ranked Product {index:02d}" for index in range(6)],
+        )
+        self.assertEqual(
+            [item.web_step for item in prepared],
+            steps[:6],
+        )
+        self.assertIs(prepared[0].top_recommendation, top)
+        self.assertTrue(
+            all(item.top_recommendation is None for item in prepared[1:])
+        )
+
     def test_matched_product_is_one_card_with_both_source_badges(self) -> None:
         product = ComparisonProduct(
             private=_private_product(),
@@ -235,6 +360,7 @@ class ProductGridTests(unittest.TestCase):
 
         self.assertEqual(row["Sources"], "Catalog + Web search")
         self.assertEqual(row["Price shown"], "$21.95")
+        self.assertEqual(row["Price source"], "Current web price")
         self.assertEqual(row["Catalog (2020)"], "$13.99")
         self.assertEqual(row["Web rating"], "4.8")
         self.assertEqual(row["Ingredients"], "— (not in catalog)")

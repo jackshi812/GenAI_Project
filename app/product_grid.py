@@ -2,13 +2,56 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from html import escape
+from math import fsum, isfinite
 from urllib.parse import urlsplit
 
+from app.cart import canonical_product_key
 from contracts import ComparisonProduct, StepEvent, TopRecommendation
 
 
 MAX_GRID_PRODUCTS = 6
+
+_WEB_PRICE_LABELS = {
+    "live_serper": "Current web price",
+    "recorded_fixture": "Recorded web price",
+    "unknown": "Web price",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ProductDisplay:
+    """Grounded fields shared by result cards, comparison rows, and the cart."""
+
+    title: str
+    image_url: str | None
+    primary_price: float | int | str | None
+    formatted_price: str
+    price_label: str
+    source_labels: tuple[str, ...]
+    link: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedProductCard:
+    """One visible product paired with its positional presentation metadata."""
+
+    index: int
+    product: ComparisonProduct
+    display: ProductDisplay
+    web_step: StepEvent | None
+    top_recommendation: TopRecommendation | None
+
+
+@dataclass(frozen=True, slots=True)
+class CartPriceSummary:
+    """A truthful sum of only the cart prices safe to treat as numbers."""
+
+    total: float
+    included_count: int
+    excluded_count: int
+    price_sources: tuple[str, ...]
 
 
 SHOPPING_GRID_CSS = """
@@ -305,14 +348,106 @@ def format_money(value: float | int | str | None) -> str:
     return str(value)
 
 
-def _safe_http_url(value: str | None) -> str | None:
-    """Return an escaped HTTP(S) URL, rejecting unsafe link schemes."""
+def safe_http_url(value: str | None) -> str | None:
+    """Return an HTTP(S) URL unchanged, rejecting unsafe or relative links."""
     if not value:
         return None
     parsed = urlsplit(value)
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
         return None
-    return escape(value, quote=True)
+    return value
+
+
+def _safe_http_url(value: str | None) -> str | None:
+    """Return a safe URL escaped for interpolation into card HTML."""
+    safe = safe_http_url(value)
+    return escape(safe, quote=True) if safe is not None else None
+
+
+def product_display(product: ComparisonProduct) -> ProductDisplay:
+    """Select the exact grounded title, price provenance, sources, and link."""
+    private = product.private
+    live = product.live
+    title = (
+        live.title
+        if live is not None
+        else private.title
+        if private is not None
+        else "Product"
+    )
+    private_price = None
+    if private is not None:
+        private_price = (
+            private.price_low
+            if private.price_low is not None
+            else private.price
+        )
+    live_has_price = live is not None and live.price is not None
+    primary_price = live.price if live_has_price else private_price
+    price_label = (
+        _WEB_PRICE_LABELS[live.origin]
+        if live_has_price and live is not None
+        else "2020 catalog price"
+        if private is not None
+        else "Price"
+    )
+    source_labels: list[str] = []
+    if private is not None:
+        source_labels.append("Catalog")
+    if live is not None:
+        source_labels.append("Web search")
+    link_candidate = (
+        live.url
+        if live is not None
+        else private.product_url
+        if private is not None
+        else None
+    )
+    image_candidate = (
+        live.image_url
+        if live is not None and live.image_url
+        else private.image_url
+        if private is not None
+        else None
+    )
+    return ProductDisplay(
+        title=title,
+        image_url=safe_http_url(image_candidate),
+        primary_price=primary_price,
+        formatted_price=format_money(primary_price),
+        price_label=price_label,
+        source_labels=tuple(source_labels),
+        link=safe_http_url(link_candidate),
+    )
+
+
+def summarize_cart_prices(
+    products: list[ComparisonProduct],
+) -> CartPriceSummary:
+    """Sum displayed numeric prices without parsing malformed source text."""
+    numeric_prices: list[float] = []
+    price_sources: list[str] = []
+    excluded_count = 0
+    for product in products:
+        display = product_display(product)
+        value = display.primary_price
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and isfinite(float(value))
+            and float(value) >= 0
+        ):
+            numeric_prices.append(float(value))
+            if display.price_label not in price_sources:
+                price_sources.append(display.price_label)
+        else:
+            excluded_count += 1
+    return CartPriceSummary(
+        total=fsum(numeric_prices),
+        included_count=len(numeric_prices),
+        excluded_count=excluded_count,
+        price_sources=tuple(price_sources),
+    )
 
 
 def _price_html(value: float | int | str | None) -> str:
@@ -355,33 +490,21 @@ def product_card_html(
     """Render one unified shopping card with per-source provenance badges."""
     private = product.private
     live = product.live
-
-    title = (
-        live.title
-        if live is not None
-        else private.title
-        if private is not None
-        else "Product"
-    )
-    link = _safe_http_url(
-        live.url if live is not None else private.product_url if private else None
-    )
-    image = _safe_http_url(
-        live.image_url
-        if live is not None and live.image_url
-        else private.image_url if private is not None else None
-    )
+    display = product_display(product)
+    title = display.title
+    link = _safe_http_url(display.link)
+    image = _safe_http_url(display.image_url)
 
     badges: list[str] = []
     if top_recommendation is not None:
         badges.append(
             '<span class="shopping-top-badge">Top recommendation</span>'
         )
-    if private is not None:
+    if "Catalog" in display.source_labels:
         badges.append(
             '<span class="shopping-source-badge shopping-source-badge--catalog">Catalog</span>'
         )
-    if live is not None:
+    if "Web search" in display.source_labels:
         badges.append(
             '<span class="shopping-source-badge shopping-source-badge--web">Web search</span>'
         )
@@ -417,18 +540,16 @@ def product_card_html(
     else:
         rating_html = "<span>No rating reported</span>"
 
-    private_price = None
-    if private is not None:
-        private_price = private.price_low if private.price_low is not None else private.price
-    live_has_price = live is not None and live.price is not None
-    primary_price = live.price if live_has_price else private_price
-    price_label = (
-        "Current web price"
-        if live_has_price
-        else "2020 catalog price"
-        if private
-        else "Price"
+    private_price = (
+        private.price_low
+        if private is not None and private.price_low is not None
+        else private.price
+        if private is not None
+        else None
     )
+    live_has_price = live is not None and live.price is not None
+    primary_price = display.primary_price
+    price_label = display.price_label
 
     history_html = ""
     if private is not None and live_has_price:
@@ -516,36 +637,53 @@ def product_card_html(
     )
 
 
+def prepare_product_cards(
+    products: list[ComparisonProduct],
+    web_steps: list[StepEvent] | None = None,
+    top_recommendation: TopRecommendation | None = None,
+) -> list[PreparedProductCard]:
+    """Prepare the first six products without changing graph-owned order."""
+    visible_products = products[:MAX_GRID_PRODUCTS]
+    steps = web_steps or []
+    first_identity = (
+        canonical_product_key(visible_products[0]) if visible_products else ""
+    )
+    canonical_top = (
+        top_recommendation
+        if first_identity
+        and top_recommendation is not None
+        and top_recommendation.product_key == first_identity
+        else None
+    )
+    return [
+        PreparedProductCard(
+            index=index,
+            product=product,
+            display=product_display(product),
+            web_step=steps[index] if index < len(steps) else None,
+            top_recommendation=canonical_top if index == 0 else None,
+        )
+        for index, product in enumerate(visible_products)
+    ]
+
+
 def shopping_grid_html(
     products: list[ComparisonProduct],
     web_steps: list[StepEvent] | None = None,
     top_recommendation: TopRecommendation | None = None,
 ) -> str:
     """Render up to six product cards in one responsive shopping grid."""
-    steps = web_steps or []
-    first_identity = ""
-    if products:
-        first = products[0]
-        first_identity = (
-            f"catalog:{first.private.doc_id}"
-            if first.private is not None
-            else f"live:{first.live.url}"
-            if first.live is not None
-            else ""
-        )
-    canonical_top = (
-        top_recommendation
-        if top_recommendation is not None
-        and top_recommendation.product_key == first_identity
-        else None
-    )
     cards = [
         product_card_html(
-            product,
-            steps[index] if index < len(steps) else None,
-            canonical_top if index == 0 else None,
+            prepared.product,
+            prepared.web_step,
+            prepared.top_recommendation,
         )
-        for index, product in enumerate(products[:MAX_GRID_PRODUCTS])
+        for prepared in prepare_product_cards(
+            products,
+            web_steps,
+            top_recommendation,
+        )
     ]
     return (
         '<div class="shopping-grid-shell">'
@@ -561,27 +699,7 @@ def comparison_rows(products: list[ComparisonProduct]) -> list[dict[str, str]]:
     for product in products[:MAX_GRID_PRODUCTS]:
         private = product.private
         live = product.live
-        title = (
-            live.title
-            if live is not None
-            else private.title
-            if private
-            else "Product"
-        )
-        sources = []
-        if private is not None:
-            sources.append("Catalog")
-        if live is not None:
-            sources.append("Web search")
-        shown_price = (
-            live.price
-            if live is not None and live.price is not None
-            else private.price_low
-            if private is not None and private.price_low is not None
-            else private.price
-            if private is not None
-            else None
-        )
+        display = product_display(product)
         catalog_price = (
             private.price_low
             if private is not None and private.price_low is not None
@@ -591,9 +709,10 @@ def comparison_rows(products: list[ComparisonProduct]) -> list[dict[str, str]]:
         )
         rows.append(
             {
-                "Product": title,
-                "Sources": " + ".join(sources),
-                "Price shown": format_money(shown_price),
+                "Product": display.title,
+                "Sources": " + ".join(display.source_labels),
+                "Price shown": display.formatted_price,
+                "Price source": display.price_label,
                 "Catalog (2020)": format_money(catalog_price),
                 "Web rating": (
                     f"{live.rating:.1f}"

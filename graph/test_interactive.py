@@ -147,7 +147,8 @@ class InteractiveGraphTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(tools.rag_calls[0][1]["price_max"], 20.0)
         self.assertFalse(result.answer_text.startswith("Oh"))
-        self.assertIn("matches your groceries request", result.answer_text)
+        self.assertNotIn("matches your", result.answer_text.casefold())
+        self.assertNotIn("groceries request", result.answer_text.casefold())
         self.assertIn("fits your $20 budget", result.answer_text)
 
     async def test_budget_range_and_top_recommendation_share_one_canonical_product(self) -> None:
@@ -313,6 +314,78 @@ class InteractiveGraphTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tools.web_calls, [])
         self.assertIn("thanks for asking", result.answer_text)
 
+    async def test_navigation_and_termination_skip_all_product_tools(self) -> None:
+        previous = ShoppingContext(product_query="bag", resolved_query="bag")
+        for text in ("Oh no go back", "search result", "Okay that's all"):
+            with self.subTest(text=text):
+                tools = _Tools([_catalog_product()])
+                result = await _run(
+                    text,
+                    tools,
+                    graph_mode="interactive",
+                    dialogue_context={"shopping_context": previous},
+                )
+
+                self.assertEqual(tools.rag_calls, [])
+                self.assertEqual(tools.web_calls, [])
+                self.assertEqual(result.products, [])
+                self.assertLessEqual(len(result.answer_text.split()), 30)
+
+    async def test_plural_adult_bag_prefers_grounded_adult_web_evidence(self) -> None:
+        wildkin = _catalog_product().model_copy(
+            update={
+                "sku": "wildkin-kids-bag",
+                "doc_id": "CAT-WILDKIN-KIDS",
+                "title": "Wildkin Kids Overnighter Duffel Bag for Boys and Girls",
+                "category": "Clothing, Shoes & Jewelry",
+                "similarity": 0.99,
+            }
+        )
+        adult_bag = WebResult(
+            title="Unisex Canvas Work Bag for Men and Women",
+            url="https://www.walmart.com/ip/adult-canvas-work-bag",
+            snippet="Adult unisex canvas carry bag for work and travel",
+            price=24.99,
+            availability="Delivery",
+            image_url="https://example.com/adult-bag.jpg",
+            rating=4.5,
+            origin="live_serper",
+        )
+
+        class _AdultBagTools(_Tools):
+            async def web_search(self, query: str, num: int = 10):
+                self.web_calls.append((query, num))
+                return [adult_bag]
+
+        tools = _AdultBagTools([wildkin])
+        with patch(
+            "graph.interactive.natural_answer_once",
+            new=AsyncMock(return_value=None),
+        ):
+            result = await _run(
+                "Give bag adults",
+                tools,
+                graph_mode="interactive",
+                dialogue_context={
+                    "shopping_context": ShoppingContext(
+                        product_query="bag",
+                        resolved_query="bag",
+                    )
+                },
+            )
+
+        self.assertEqual(tools.rag_calls[0][0], "bag")
+        self.assertEqual(tools.web_calls, [("bag adult", 12)])
+        self.assertEqual(result.products[0].live.url, adult_bag.url)
+        self.assertTrue(all(
+            product.private is None or "kids" not in product.private.title.casefold()
+            for product in result.products
+        ))
+        self.assertIn("adult", result.top_recommendation.reason.casefold())
+        self.assertNotIn("Give bag adults", result.answer_text)
+        self.assertNotIn("matches your", result.answer_text.casefold())
+        self.assertLessEqual(len(result.answer_text.split()), 30)
+
     async def test_rejection_retains_results_and_waits_for_a_preference(self) -> None:
         tools = _Tools([_catalog_product()])
         previous = ComparisonProduct(
@@ -341,10 +414,42 @@ class InteractiveGraphTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tools.rag_calls, [])
         self.assertEqual(tools.web_calls, [])
         self.assertIn("Preference refinement", result.plan)
-        self.assertIn("What should I adjust", result.answer_text)
+        self.assertIn("what would you like instead", result.answer_text.casefold())
         self.assertIn("$20 limit", result.answer_text)
         self.assertEqual(result.products, [previous])
         self.assertEqual(result.citations, [citation])
+
+    async def test_bare_rejection_cannot_be_overridden_by_preference_model(self) -> None:
+        tools = _Tools([_catalog_product()])
+        previous = ShoppingContext(
+            product_query="puzzle",
+            resolved_query="puzzle",
+        )
+        spurious_model_change = ShoppingContext(
+            product_query="puzzle",
+            features=["different"],
+            resolved_query="puzzle different",
+            is_followup=True,
+            preference_changed=True,
+            understanding_source="llm",
+        )
+        preference_parser = AsyncMock(return_value=spurious_model_change)
+
+        with patch(
+            "graph.interactive.resolve_preferences",
+            new=preference_parser,
+        ):
+            result = await _run(
+                "I don't like it",
+                tools,
+                graph_mode="interactive",
+                dialogue_context={"shopping_context": previous},
+            )
+
+        preference_parser.assert_not_awaited()
+        self.assertEqual(tools.rag_calls, [])
+        self.assertEqual(tools.web_calls, [])
+        self.assertIn("what would you like instead", result.answer_text.casefold())
 
     async def test_delegated_choice_uses_llm_direction_and_returns_six(self) -> None:
         catalog_products = [
@@ -630,8 +735,9 @@ class InteractiveGraphTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertGreater(len(result.products), 0)
-        self.assertIn("closest grounded candidate", result.answer_text)
         self.assertIn("Lightweight running layer", result.answer_text)
+        self.assertNotIn("closest grounded candidate", result.answer_text)
+        self.assertNotIn("matches your", result.answer_text.casefold())
         self.assertNotIn("blue", result.answer_text.casefold())
         self.assertNotIn("does not confirm", result.answer_text)
         self.assertNotIn("couldn’t find a grounded match", result.answer_text)
@@ -759,17 +865,22 @@ class InteractiveGraphTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("shop for next", result.answer_text.casefold())
 
     async def test_hazardous_mixing_request_stops_before_tools(self) -> None:
-        tools = _Tools()
+        for graph_mode in ("interactive", "llm"):
+            for transcript in (
+                "Can I mix bleach and ammonia for a stronger cleaner?",
+                "mix ammonia with vineager",
+            ):
+                with self.subTest(graph_mode=graph_mode, transcript=transcript):
+                    tools = _Tools()
+                    result = await _run(
+                        transcript,
+                        tools,
+                        graph_mode=graph_mode,
+                    )
 
-        result = await _run(
-            "Can I mix bleach and ammonia for a stronger cleaner?",
-            tools,
-            graph_mode="interactive",
-        )
-
-        self.assertEqual(tools.rag_calls, [])
-        self.assertEqual(tools.web_calls, [])
-        self.assertIn("hazardous chemical mixing", result.answer_text)
+                    self.assertEqual(tools.rag_calls, [])
+                    self.assertEqual(tools.web_calls, [])
+                    self.assertIn("safety warning", result.answer_text.casefold())
 
     def test_unknown_graph_mode_is_rejected(self) -> None:
         with self.assertRaises(ValueError):

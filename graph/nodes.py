@@ -19,37 +19,64 @@ from graph.response_style import (
     is_delegated_choice,
     is_rejection_followup,
     is_vague_shopping_query,
+    refinement_reply,
 )
 from graph.retriever import RAG_CANDIDATE_K
+from graph.safety import (
+    SAFETY_FLAG,
+    SAFETY_RATIONALE,
+    is_hazardous_chemical_mixing,
+)
 from graph.state import PlannerOutput, RouterOutput, make_step, timer
-
-SAFETY_FLAG = "hazardous_chemical_mixing"
-SAFETY_RATIONALE = "Safety stop: I can't recommend hazardous chemical mixing."
 
 
 async def router_node(state: dict) -> dict:
     """Extract task, constraints, and safety flags from the transcript."""
+    transcript = str(state.get("transcript") or "")
+    hazardous = is_hazardous_chemical_mixing(transcript)
+    explicit_delegated = not hazardous and is_delegated_choice(transcript)
+    explicit_actionable_preference = has_actionable_preference(transcript)
+    rejection = not hazardous and is_rejection_followup(transcript)
+    bare_rejection = bool(
+        rejection and not explicit_actionable_preference and not explicit_delegated
+    )
     with timer() as t:
-        llm = get_llm().with_structured_output(RouterOutput)
-        out: RouterOutput = await llm.ainvoke(
-            [
-                ("system", load_prompt("router")),
-                ("human", state["transcript"]),
-            ]
-        )
+        if hazardous:
+            out = RouterOutput(task="", safety_flags=[SAFETY_FLAG])
+        else:
+            llm = get_llm().with_structured_output(RouterOutput)
+            out = await llm.ainvoke(
+                [
+                    ("system", load_prompt("router")),
+                    ("human", transcript),
+                ]
+            )
     dialogue_context = state.get("dialogue_context") or {}
-    delegated = not out.safety_flags and is_delegated_choice(state["transcript"])
+    delegated = not out.safety_flags and explicit_delegated
     prior_shopping_context = dialogue_context.get("shopping_context")
-    shopping_context = (
-        ShoppingContext.model_validate(prior_shopping_context)
-        if delegated and prior_shopping_context is not None
-        else await resolve_preferences(
-            state["transcript"],
+    if out.safety_flags or bare_rejection:
+        shopping_context = (
+            ShoppingContext.model_validate(prior_shopping_context)
+            if prior_shopping_context is not None
+            else ShoppingContext()
+        )
+        if bare_rejection:
+            shopping_context = shopping_context.model_copy(
+                update={
+                    "is_followup": prior_shopping_context is not None,
+                    "preference_changed": False,
+                },
+                deep=True,
+            )
+    elif delegated and prior_shopping_context is not None:
+        shopping_context = ShoppingContext.model_validate(prior_shopping_context)
+    else:
+        shopping_context = await resolve_preferences(
+            transcript,
             out.task,
             prior_shopping_context,
             allow_llm=not delegated,
         )
-    )
     prior_products = list(dialogue_context.get("products") or [])
     selection_index: int | None = None
     decision_source = ""
@@ -76,14 +103,14 @@ async def router_node(state: dict) -> dict:
         not out.safety_flags
         and not delegated
         and (
-            has_actionable_preference(state["transcript"])
+            explicit_actionable_preference
             or shopping_context.preference_changed
         )
     )
     refinement = (
         not out.safety_flags
         and not delegated
-        and is_rejection_followup(state["transcript"])
+        and rejection
         and not actionable_preference
     )
     incomplete_preference = bool(
@@ -109,14 +136,18 @@ async def router_node(state: dict) -> dict:
         budget_min = dialogue_context.get("budget_min")
         budget_max = dialogue_context.get("budget_max")
     task = (
-        direction.query
+        ""
+        if out.safety_flags
+        else direction.query
         if direction is not None
         else ""
         if selection_index is not None
         else shopping_context.resolved_query or out.task
     )
     category = (
-        direction.category
+        None
+        if out.safety_flags
+        else direction.category
         if direction is not None
         else out.category or infer_catalog_category(task)
     )
@@ -164,12 +195,7 @@ async def router_node(state: dict) -> dict:
     previous_request = str(dialogue_context.get("previous_request") or "")
     conversation_answer = ""
     if refinement:
-        conversation_answer = await natural_dialogue_reply(
-            "refinement",
-            state["transcript"],
-            budget_max,
-            previous_request=previous_request,
-        )
+        conversation_answer = refinement_reply(budget_max)
     elif incomplete_preference:
         conversation_answer = await natural_dialogue_reply(
             "preference",

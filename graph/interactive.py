@@ -9,8 +9,6 @@ available through ``GRAPH_MODE=llm``.
 
 from __future__ import annotations
 
-import re
-
 from contracts import ShoppingContext
 from graph.answer import _build_citations, _degraded_answer, natural_answer_once
 from graph.decision import choose_direction, choose_product_index
@@ -23,7 +21,6 @@ from graph.fast_reply import (
     semantic_query,
     should_search_live,
 )
-from graph.nodes import SAFETY_FLAG, SAFETY_RATIONALE
 from graph.preferences import (
     clears_budget,
     has_actionable_preference,
@@ -34,6 +31,11 @@ from graph.preferences import (
 from graph.recommendation import build_top_recommendation, canonicalize_products
 from graph.relevance import infer_catalog_category
 from graph.retriever import RAG_CANDIDATE_K
+from graph.safety import (
+    SAFETY_FLAG,
+    SAFETY_RATIONALE,
+    is_hazardous_chemical_mixing,
+)
 from graph.response_style import (
     CLARIFICATION_PLAN,
     REFINEMENT_PLAN,
@@ -46,22 +48,20 @@ from graph.response_style import (
 from graph.state import make_step, timer
 
 
-_HAZARDOUS_MIX = re.compile(
-    r"(?:\b(?:mix|combine)\b.{0,80}\b(?:bleach|chlorine)\b.{0,80}"
-    r"\b(?:ammonia|acid|vinegar)\b)|"
-    r"(?:\b(?:ammonia|acid|vinegar)\b.{0,80}\b(?:mix|combine)\b.{0,80}"
-    r"\b(?:bleach|chlorine)\b)",
-    re.IGNORECASE,
-)
-
-
 async def interactive_router_node(state: dict) -> dict:
     """Extract common shopping intent and safety constraints without an LLM."""
     transcript = str(state.get("transcript") or "").strip()
     dialogue_context = state.get("dialogue_context") or {}
     with timer() as measured:
-        hazardous = bool(_HAZARDOUS_MIX.search(transcript))
+        hazardous = is_hazardous_chemical_mixing(transcript)
         explicit_delegated = not hazardous and is_delegated_choice(transcript)
+        explicit_actionable_preference = has_actionable_preference(transcript)
+        rejection = not hazardous and is_rejection_followup(transcript)
+        bare_rejection = bool(
+            rejection
+            and not explicit_actionable_preference
+            and not explicit_delegated
+        )
         prior_shopping_context = dialogue_context.get("shopping_context")
         base_query = semantic_query(transcript)
         social_answer = (
@@ -73,10 +73,20 @@ async def interactive_router_node(state: dict) -> dict:
                 if prior_shopping_context is not None
                 else ShoppingContext()
             )
-        elif (hazardous or explicit_delegated) and prior_shopping_context is not None:
-            shopping_context = ShoppingContext.model_validate(
-                prior_shopping_context
+        elif hazardous or explicit_delegated or bare_rejection:
+            shopping_context = (
+                ShoppingContext.model_validate(prior_shopping_context)
+                if prior_shopping_context is not None
+                else ShoppingContext()
             )
+            if bare_rejection:
+                shopping_context = shopping_context.model_copy(
+                    update={
+                        "is_followup": prior_shopping_context is not None,
+                        "preference_changed": False,
+                    },
+                    deep=True,
+                )
         else:
             shopping_context = await resolve_preferences(
                 transcript,
@@ -97,14 +107,14 @@ async def interactive_router_node(state: dict) -> dict:
             not hazardous
             and not delegated
             and (
-                has_actionable_preference(transcript)
+                explicit_actionable_preference
                 or bool(shopping_context.preference_changed)
             )
         )
         refinement = (
             not hazardous
             and not delegated
-            and is_rejection_followup(transcript)
+            and rejection
             and not actionable_preference
         )
         incomplete_preference = bool(
@@ -193,17 +203,7 @@ async def interactive_router_node(state: dict) -> dict:
                 previous_request=previous_request,
                 previous_answer=previous_answer,
             )
-        refinement_answer = (
-            await natural_dialogue_reply(
-                "refinement",
-                transcript,
-                budget_max,
-                previous_request=previous_request,
-                previous_answer=previous_answer,
-            )
-            if refinement
-            else ""
-        )
+        refinement_answer = refinement_reply(budget_max) if refinement else ""
         brand = extract_brand(transcript) if query and not delegated else None
         category = (
             direction.category

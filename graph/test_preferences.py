@@ -297,6 +297,49 @@ class PreferenceTests(unittest.TestCase):
                 self.assertEqual(profile.features, [])
                 self.assertEqual(profile.resolved_query, "LEGO")
 
+    def test_plural_adults_refines_the_active_bag_as_a_hard_audience(self) -> None:
+        previous = ShoppingContext(
+            product_query="bag",
+            resolved_query="bag",
+        )
+
+        profile = asyncio.run(
+            resolve_preferences(
+                "Give bag adults",
+                semantic_query("Give bag adults"),
+                previous,
+                allow_llm=False,
+            )
+        )
+
+        self.assertEqual(profile.product_query, "bag")
+        self.assertEqual(profile.sizes, ["adult"])
+        self.assertEqual(profile.resolved_query, "bag adult")
+        self.assertTrue(profile.is_followup)
+        self.assertTrue(profile.preference_changed)
+
+    def test_adult_audience_rejects_child_bag_and_accepts_adult_synonyms(self) -> None:
+        child = _product(
+            "child-bag",
+            "Wildkin Kids Overnighter Duffel Bag for Boys and Girls",
+            similarity=0.99,
+        )
+        adult = _product(
+            "adult-bag",
+            "Unisex Canvas Work Bag for Men and Women",
+            similarity=0.70,
+        )
+        context = ShoppingContext(
+            product_query="bag",
+            sizes=["adult"],
+            resolved_query="bag adult",
+        )
+
+        filtered = filter_products_by_required_facets([child, adult], context)
+
+        self.assertEqual(filtered, [adult])
+        self.assertEqual(matched_preferences(adult, context), ["adult"])
+
     def test_extracts_specific_requirements_without_an_llm(self) -> None:
         text = "comfortable blue leather shoes in size 10 with a soft lining"
         profile = asyncio.run(

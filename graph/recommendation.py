@@ -90,74 +90,45 @@ def _compact_feature_detail(
 
 
 def recommendation_reason(product: ComparisonProduct, state: dict) -> str:
-    """Explain the rank using only retrieved facts and shopper-stated criteria."""
+    """Explain the rank with evidence, never by echoing the shopper's query."""
     constraints = state.get("constraints") or {}
     budget_min = constraints.get("budget_min")
     budget_max = constraints.get("budget_max")
-    query = _compact(
-        str(state.get("semantic_query") or state.get("intent") or "this request"),
-        word_limit=3,
-    )
-    lead = f"It matches your {query} request; "
     context = state.get("shopping_context")
     supported = matched_preferences(product, context)
     requirements = preference_requirements(context)
     unconfirmed = [value for value in requirements if value not in supported]
+    if "adult" in unconfirmed:
+        return ""
     if product.private is not None and product.private.feature_evidence:
         detail = _compact_feature_detail(product.private.feature_evidence[0])
         if detail:
             suffix = "" if re.search(r"[.!?][\"')\]]*$", detail) else "."
-            if unconfirmed:
-                return (
-                    "It is the closest grounded candidate; catalog evidence "
-                    f"notes: {detail}{suffix}"
-                )
             return f"Catalog evidence notes: {detail}{suffix}"
-
-    if unconfirmed:
-        lead = (
-            "It is a grounded candidate for your request; "
-            if query == "this request"
-            else f"It is a grounded candidate for your {query} request; "
-        )
 
     price, source = _known_price(product)
     if price is not None and budget_min is not None and budget_max is not None:
         if float(budget_min) <= price <= float(budget_max):
             return (
-                lead
-                + f"its {source} is ${price:,.2f}, within your "
+                f"Its {source} is ${price:,.2f}, within your "
                 f"${float(budget_min):g}–${float(budget_max):g} range."
             )
     if price is not None and budget_max is not None and price <= float(budget_max):
         return (
-            lead
-            + f"its {source} is ${price:,.2f} and fits your "
+            f"Its {source} is ${price:,.2f} and fits your "
             f"${float(budget_max):g} budget."
         )
     if price is not None and budget_min is not None and price >= float(budget_min):
         return (
-            lead
-            + f"its {source} is ${price:,.2f}, above your "
+            f"Its {source} is ${price:,.2f}, above your "
             f"${float(budget_min):g} minimum."
         )
-
     if supported:
         compact_supported = [_compact(value, 2) for value in supported[:2]]
-        if unconfirmed:
-            return (
-                "It is the closest grounded candidate; evidence confirms "
-                + ", ".join(compact_supported)
-                + "."
-            )
         return "Grounded evidence confirms " + ", ".join(compact_supported) + "."
-    if requirements:
-        if query == "this request":
-            return "It is the closest grounded candidate for your request."
-        return f"It is the closest grounded candidate for your {query} request."
-    if query == "this request":
-        return "It is the highest-ranked grounded match for your request."
-    return f"It is the highest-ranked grounded match for your {query} request."
+    if price is not None:
+        return f"Its {source} is ${price:,.2f}."
+    return ""
 
 
 def build_top_recommendation(
